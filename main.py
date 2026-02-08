@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from api.routes import router
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Incident Detection API")
+app = FastAPI(title="Sentinel AI API")
 
 app.add_middleware(
     CORSMiddleware,
