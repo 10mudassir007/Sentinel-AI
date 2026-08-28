@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 from langchain_core.messages import HumanMessage
 
-from core.config import DESCRIPTION_LANGUAGES
+from core.config import DESCRIPTION_LANGUAGES, YOLO_CONF_THRESHOLD
 from core.llm import get_vision_llm
 from core.yolo_helpers import detect_objects, draw_detections
 
@@ -138,8 +138,10 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
     motion_history = deque()
     incidents = []
 
-    HISTORY_SIZE = 15
-    MIN_MOTION_PERCENT = 0.15
+    # Gating counters: every discarded frame is logged locally (never escalates).
+    motion_discards = 0
+    detection_discards = 0
+
     FRAME_SKIP = max(int(fps / target_fps), 1)
 
     logger.info("Processing video for incidents: %s", video_path)
@@ -183,12 +185,24 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
             )
 
             if motion_score < dynamic_threshold:
+                motion_discards += 1
+                logger.debug(
+                    "Discarding frame at %.2fs: motion %.2f%% below threshold %.2f%%",
+                    timestamp, motion_score, dynamic_threshold,
+                )
                 frame_index += 1
                 continue
 
-            # Detect objects
+            # Gate 2 - YOLO: only frames with an interest class above the
+            # confidence threshold are escalated to the vision LLM.
             detections = detect_objects(frame)
             if not detections:
+                detection_discards += 1
+                logger.debug(
+                    "Discarding frame at %.2fs: no interest class above "
+                    "%.2f confidence",
+                    timestamp, YOLO_CONF_THRESHOLD,
+                )
                 frame_index += 1
                 continue
 
@@ -221,6 +235,12 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
         cap.release()
         if show_frames:
             cv2.destroyAllWindows()
+
+    logger.info(
+        "Gating summary for %s: %d frames below motion threshold, "
+        "%d frames with no relevant detection, %d frames escalated to the LLM",
+        video_path, motion_discards, detection_discards, len(incidents),
+    )
 
     return {
         "total_frames": total_frames,

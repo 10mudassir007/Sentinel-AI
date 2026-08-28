@@ -4,10 +4,15 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
-INTEREST_CLASSES = {"person", "car", "bus", "truck", "motorcycle", "bicycle"}
+from core.config import (
+    YOLO_CONF_THRESHOLD,
+    YOLO_INTEREST_CLASSES,
+    YOLO_MODEL_PATH,
+)
 
-# Default confidence threshold for YOLO detections.
-_CONF_THRESHOLD = 0.45
+# Classes that justify escalating a frame to the vision LLM (env-configurable;
+# stock COCO: person, vehicles and knife - see README).
+INTEREST_CLASSES = YOLO_INTEREST_CLASSES
 
 _model_lock = threading.Lock()
 _model_local = threading.local()
@@ -24,12 +29,12 @@ def _get_model() -> YOLO:
         with _model_lock:
             model = getattr(_model_local, "model", None)
             if model is None:
-                model = YOLO("yolo26n.pt")
+                model = YOLO(YOLO_MODEL_PATH)
                 _model_local.model = model
     return model
 
 
-def detect_objects(frame: np.ndarray, conf_threshold: float = _CONF_THRESHOLD):
+def detect_objects(frame: np.ndarray, conf_threshold: float = YOLO_CONF_THRESHOLD):
     model = _get_model()
     results = model(frame, verbose=False)[0]
     detections = []

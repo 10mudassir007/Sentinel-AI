@@ -5,6 +5,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# ffmpeg converts edge-tts mp3 output to WAV for Asterisk playback.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -13,7 +18,9 @@ RUN python -c "from ultralytics import YOLO; YOLO('yolo26n.pt')"
 
 COPY . .
 
-RUN useradd --create-home --shell /usr/sbin/nologin appuser
+RUN useradd --create-home --shell /usr/sbin/nologin appuser \
+    && mkdir -p /app/generated_audio \
+    && chown -R appuser:appuser /app/generated_audio
 USER appuser
 
 EXPOSE 8080

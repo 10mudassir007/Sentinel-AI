@@ -1,9 +1,12 @@
 architecture diagram
 
-POST /analyze-video (MP4/AVI/MOV)
+POST /analyze-video (MP4/AVI/MOV + optional latitude/longitude)
         │
         ▼
-api/routes.py ──► services/video_service.analyze_video()
+api/routes.py ──► services/geocode.reverse_geocode()  (external API, e.g. Nominatim)
+        │         coordinates → readable location (street, city)
+        ▼
+services/video_service.analyze_video(location)
                         │
                         ├─► services/process_video.process_video_for_incidents()
                         │      │  OpenCV: motion scoring (absdiff → blur → threshold)
@@ -12,6 +15,11 @@ api/routes.py ──► services/video_service.analyze_video()
                         │
                         └─► core/agent.get_incident_agent()  (LangChain agent + tools)
                                └─► core/tools: call_ambulance / call_police / call_firebrigade
+                                      │  voice message = LLM description + resolved location
+                                      │  ("This incident has occurred at …")
+                                      └─► SIP trunk (Asterisk AMI Originate) + TTS voice message
+                                           failures never surface to the LLM: tools return a
+                                           neutral confirmation; real outcome → API dispatch[]
 
 
 
@@ -40,38 +48,44 @@ api/routes.py ──► services/video_service.analyze_video()
 
 
 ┌─────────────────────────── CLIENT LAYER ───────────────────────────┐
-│  website/ (React + Vite + shadcn)  ──►  APIDemo.tsx               │
+│  website/ (React + Vite + shadcn)  ──►  APIDemo.tsx                │
 │     POST http://localhost:8000/analyze-video  (multipart upload)   │
-│     └─ mock fallback response if API offline                      │
-│  Other consumers: curl / Postman / future mobile app (addons.txt) │
-└────────────────────────────────┬──────────────────────────────────┘
+│     └─ mock fallback response if API offline                       │
+│  Other consumers: curl / Postman / future mobile app (addons.txt)  │
+└────────────────────────────────┬───────────────────────────────────┘
                                  │ multipart/form-data
                                  ▼
-┌─────────────────────────── API LAYER ─────────────────────────────┐
-│  main.py ── FastAPI app ("Sentinel AI API")                       │
-│    • CORS middleware (env-configured CORS_ORIGINS)                │
-│    • per-IP rate limiter (RATE_LIMIT_PER_MINUTE)                  │
-│    • /health endpoint                                             │
-│                                                                    │
-│  api/routes.py ── POST /login, POST /analyze-video                  │
-│    • POST /login: validates CNIC (13 digits) against AUTHORIZED_CNICS│
-│      whitelist, mints bearer token (TOKEN_TTL_HOURS lifetime, hashed │
-│      in memory, capped at 10k)                                       │
-│    • POST /analyze-video: requires valid Bearer token (else 401)    │
-│    • validates extension + magic bytes, enforces size limit       │
-│    • streams upload to temp file (cleanup on all paths),          │
-│      analysis offloaded to a thread pool                          │
-│    • returns: filename, incident count, video_analysis,           │
-│      agent_response (extracted final answer)                      │
-└────────────────────────────┬──────────────────────────────────────┘
+┌─────────────────────────── API LAYER ─────────────────────────────────┐
+│  main.py ── FastAPI app ("Sentinel AI API")                           │
+│    • CORS middleware (env-configured CORS_ORIGINS)                    │
+│    • per-IP rate limiter (RATE_LIMIT_PER_MINUTE)                      │
+│    • /health endpoint                                                 │
+│                                                                       │
+│  api/routes.py ── POST /login, POST /analyze-video                    │
+│    • POST /login: validates CNIC format (13 digits), then verifies it │
+│      against AUTHORIZED_CNICS Argon2id hashes (tools/hash_cnic.py),   │
+│      mints bearer token (TOKEN_TTL_HOURS lifetime, hashed in memory,  │
+│      capped at 10k)                                                   │
+│    • POST /analyze-video: requires valid Bearer token (else 401)      │
+│    • validates extension + magic bytes, enforces size limit           │
+│    • streams upload to temp file (cleanup on all paths),              │
+│      analysis offloaded to a thread pool                              │
+│    • returns: filename, incident count, video_analysis,               │  
+│      agent_response (extracted final answer)                          │
+└────────────────────────────┬──────────────────────────────────────────┘
                              ▼
 ┌─────────────────────── SERVICE / ORCHESTRATION ───────────────────┐
-│  services/video_service.analyze_video(path)                       │
-│    • builds incident agent (core/agent)                           │
-│    • runs video pipeline (services/process_video)                 │
-│    • sends SYSTEM_PROMPT + video analysis to agent                │
-│    • returns (video_analysis, agent_response)                     │
-│                                                                    │
+│  services/video_service.analyze_video(path, location)                │
+│    • builds incident agent (core/agent)                             │
+│    • runs video pipeline (services/process_video)                   │
+│    • sends SYSTEM_PROMPT + location + video analysis to agent       │
+│    • returns (video_analysis, agent_response, dispatch[])           │
+│                                                                     │
+│  services/geocode.reverse_geocode(lat, lon)                         │
+│    • external reverse-geocoding API (REVERSE_GEOCODE_URL,           │
+│      Nominatim default, no key) → display_name, label, address      │
+│    • cached per rounded coordinate; failure degrades to raw coords  │
+│                                                                   │
 │  services/process_video.process_video_for_incidents(path)         │
 │    • config: target_fps=1, start_pct/end_pct range                │
 │    • OpenCV frame loop: FRAME_SKIP, motion scoring                │
@@ -79,34 +93,42 @@ api/routes.py ──► services/video_service.analyze_video()
 │       adaptive threshold = max(mean×0.8, 15%) over 15-frame       │
 │       history)                                                    │
 │    • YOLO detection → core/yolo_helpers.detect_objects()          │
-│      (only 6 interest classes, conf ≥ 0.45)                       │
+│      (env-tunable interest classes + confidence gate; discards     │
+│       logged locally - never escalate without a relevant class)    │
 │    • per-frame vision analysis w/ previous description as context │
 │    • builds incidents[]: {timestamp, objects, llm_description}    │
 └───────────────┬────────────────────────────────┬──────────────────┘
                 ▼                                ▼
 ┌─────────────────────────── CORE (shared) ─────────────────────────┐
-│  core/config.py                                                    │
+│  core/config.py                                                   │
 │    • dotenv → GROQ_API_KEY (raises RuntimeError if missing)       │
-│    • SYSTEM_PROMPT (verify incident → notify authorities)          │
-│                                                                    │
-│  core/llm.py                                                       │
-│    • get_llm()        → ChatGroq "qwen/qwen3.8-27b"              │
+│    • SYSTEM_PROMPT (verify incident → notify authorities)         │
+│                                                                   │
+│  core/llm.py                                                      │
+│    • get_llm()        → ChatGroq "qwen/qwen3.8-27b"               │
 │    • get_vision_llm() → ChatGroq "qwen/qwen3.6-27b"               │
-│                                                                    │
-│  core/agent.py ── get_incident_agent()                             │
-│    • langchain create_agent(model, tools, system_prompt)           │
-│                                                                    │
-│  core/tools.py ── @tool placeholders                               │
-│    • call_ambulance / call_police / call_firebrigade               │
-│      (return strings only — real Twilio/VAPI integration planned) │
-└────────────────────────────────────────────────────────────────────┘
+│                                                                   │
+│  core/agent.py ── get_incident_agent()                            │
+│    • langchain create_agent(model, tools, system_prompt)          │
+│                                                                   │
+│  core/tools.py ── real emergency dispatch via SIP trunking      │
+│    • call_ambulance(1122) / call_police(15) / call_firebrigade(16) │
+│    • voice message from LLM description + resolved location:       │
+│      ElevenLabs → edge-tts ("This incident has occurred at …")     │
+│    • call placed over SIP trunk: AMI Originate PJSIP/<num>@trunk,  │
+│      dialplan plays ${ALERT_FILE} (shared sounds dir)              │
+│    • tool failures stay internal: neutral result to the LLM, real  │
+│      outcome (error + audio URL) recorded for the API response     │
+│  api/routes.py ── GET /audio/{file} serves generated voice audio   │
+└───────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────── ENV / DEPLOYMENT ───────────────────────┐
-│  .env  ── GROQ_API_KEY (required at import time)                  │
-│  Groq API ── chat completions (LLM + vision)                      │
-│  YOLO model ── yolo26n.pt (downloaded by ultralytics)             │
-│  DockerFile ── python:3.11-slim, uvicorn main:app :8080           │
-│  website ── Vercel deployment (vercel.json)                       │
-│  test/ ── sample MP4s for the pipeline                            │
+│  .env  ── GROQ_API_KEY (required at import time)                   │
+│  Groq API ── chat completions (LLM + vision)                       │
+│  YOLO model ── stock COCO weights (yolo26n.pt); gating classes:   │
+│               person, vehicles, knife - no custom training        │
+│  DockerFile ── python:3.11-slim, uvicorn main:app :8080            │
+│  website ── Vercel deployment (vercel.json)                        │
+│  test/ ── sample MP4s for the pipeline                             │
 └────────────────────────────────────────────────────────────────────┘

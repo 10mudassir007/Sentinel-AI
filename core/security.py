@@ -11,6 +11,8 @@ import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
 
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from fastapi import Header, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -38,20 +40,60 @@ def normalize_cnic(raw: str) -> str | None:
     return None
 
 
-def _load_authorized_cnics() -> frozenset[str]:
-    """Normalize the AUTHORIZED_CNICS env list; drop malformed entries."""
-    authorized = set()
+# --- CNIC authorization (Argon2id) ------------------------------------
+
+# Argon2id parameters. tools/hash_cnic.py reuses these, so hashes generated
+# by the script always verify against the running app.
+_ARGON2_TIME_COST = 4
+_ARGON2_MEMORY_COST = 64 * 1024  # KiB == 64 MiB
+_ARGON2_PARALLELISM = 4
+
+_hasher = PasswordHasher(
+    time_cost=_ARGON2_TIME_COST,
+    memory_cost=_ARGON2_MEMORY_COST,
+    parallelism=_ARGON2_PARALLELISM,
+)
+
+
+def hash_cnic(cnic: str) -> str:
+    """Return an Argon2id PHC hash of a CNIC (format-validated)."""
+    normalized = normalize_cnic(cnic)
+    if normalized is None:
+        raise ValueError(
+            "Invalid CNIC, expected format 12345-1234567-1 (13 digits)"
+        )
+    return _hasher.hash(normalized)
+
+
+def _load_authorized_hashes() -> tuple[str, ...]:
+    """Collect AUTHORIZED_CNICS entries; warn and drop non-Argon2 values.
+
+    Each entry must be an Argon2id PHC string (see tools/hash_cnic.py).
+    """
+    hashes = []
     for raw in AUTHORIZED_CNICS:
-        cnic = normalize_cnic(raw)
-        if cnic is None:
-            logging.warning("Ignoring invalid CNIC in AUTHORIZED_CNICS: %r", raw)
+        if not raw.startswith("$argon2"):
+            logging.warning(
+                "Ignoring AUTHORIZED_CNICS entry that is not an Argon2 hash: %.40r", raw
+            )
         else:
-            authorized.add(cnic)
-    return frozenset(authorized)
+            hashes.append(raw)
+    return tuple(hashes)
 
 
-# CNICs permitted to log in, normalized to 13 digits.
-_AUTHORIZED_CNICS = _load_authorized_cnics()
+# Argon2id hashes of CNICs permitted to log in (never plaintext CNICs).
+_AUTHORIZED_HASHES = _load_authorized_hashes()
+
+
+def _cnic_authorized(cnic: str) -> bool:
+    """True if the CNIC matches any stored Argon2id hash."""
+    for stored in _AUTHORIZED_HASHES:
+        try:
+            if _hasher.verify(stored, cnic):
+                return True
+        except (VerifyMismatchError, InvalidHashError, VerificationError):
+            continue
+    return False
 
 
 # --- Session tokens ---------------------------------------------------
@@ -74,7 +116,7 @@ def create_session(raw_cnic: str) -> dict:
             status_code=422,
             detail="Invalid CNIC, expected format 12345-1234567-1 (13 digits)",
         )
-    if cnic not in _AUTHORIZED_CNICS:
+    if not _cnic_authorized(cnic):
         raise HTTPException(status_code=401, detail="CNIC is not authorized")
 
     token = secrets.token_urlsafe(32)

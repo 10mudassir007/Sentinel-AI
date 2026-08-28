@@ -1,13 +1,21 @@
 import logging
 import os
+from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from core.config import DESCRIPTION_LANGUAGES, MAX_UPLOAD_SIZE, SUPPORTED_DESCRIPTION_LANGUAGES
+from core.config import (
+    AUDIO_OUTPUT_DIR,
+    DESCRIPTION_LANGUAGES,
+    MAX_UPLOAD_SIZE,
+    SUPPORTED_DESCRIPTION_LANGUAGES,
+)
 from core.security import create_session, require_auth
+from services.geocode import reverse_geocode
 from services.video_service import analyze_video
 
 logger = logging.getLogger(__name__)
@@ -62,10 +70,54 @@ def _has_video_magic_bytes(file: UploadFile) -> bool:
     return False
 
 
+def _parse_coordinates(latitude: str, longitude: str) -> tuple[float, float] | None:
+    """Parse and validate optional client coordinates; both-or-neither."""
+    if not latitude and not longitude:
+        return None
+    if not latitude or not longitude:
+        raise HTTPException(
+            status_code=422, detail="Both latitude and longitude are required"
+        )
+    try:
+        lat, lon = float(latitude), float(longitude)
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail="latitude and longitude must be numbers"
+        )
+    if not (-90.0 <= lat <= 90.0) or not (-180.0 <= lon <= 180.0):
+        raise HTTPException(
+            status_code=422,
+            detail="latitude must be within [-90, 90] and longitude within [-180, 180]",
+        )
+    return lat, lon
+
+
+def _resolve_location(latitude: str, longitude: str) -> dict | None:
+    """Reverse-geocode client coordinates; degrade to raw coordinates on failure."""
+    coords = _parse_coordinates(latitude, longitude)
+    if coords is None:
+        return None
+    lat, lon = coords
+    try:
+        return reverse_geocode(lat, lon)
+    except Exception:
+        # An emergency analysis must not fail because the geocoder is down.
+        logger.warning("Reverse geocoding failed for %s, %s", lat, lon, exc_info=True)
+        return {
+            "latitude": lat,
+            "longitude": lon,
+            "display_name": f"{lat}, {lon}",
+            "label": f"{lat}, {lon}",
+            "geocode_error": "reverse geocoding failed",
+        }
+
+
 @router.post("/analyze-video")
 async def analyze_video_endpoint(
     file: UploadFile = File(...),
     language: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
     _: None = Depends(require_auth),
 ):
     if not _has_supported_extension(file.filename):
@@ -78,6 +130,7 @@ async def analyze_video_endpoint(
         )
 
     languages = _parse_language_param(language)
+    location = _resolve_location(latitude, longitude)
 
     tmp_path = None
     try:
@@ -92,8 +145,8 @@ async def analyze_video_endpoint(
                     raise HTTPException(status_code=413, detail="File exceeds size limit")
                 tmp.write(chunk)
 
-        video_analysis, agent_answer = await run_in_threadpool(
-            analyze_video, tmp_path, languages=languages
+        video_analysis, agent_answer, dispatch = await run_in_threadpool(
+            analyze_video, tmp_path, languages=languages, location=location
         )
     except HTTPException:
         raise
@@ -109,7 +162,23 @@ async def analyze_video_endpoint(
 
     return {
         "filename": file.filename,
+        "location": location,
         "incidents_detected": len(video_analysis.get("incidents", [])),
         "video_analysis": video_analysis,
         "agent_response": agent_answer,
+        "dispatch": dispatch,
     }
+
+
+@router.get("/audio/{filename}")
+async def get_generated_audio(
+    filename: str, _: None = Depends(require_auth)
+):
+    """Serve a generated voice message referenced by a dispatch result."""
+    audio_dir = Path(AUDIO_OUTPUT_DIR).resolve()
+    file_path = (audio_dir / filename).resolve()
+    if file_path.parent != audio_dir or file_path.suffix.lower() != ".wav":
+        raise HTTPException(status_code=404, detail="Audio not found")
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Audio not found")
+    return FileResponse(file_path, media_type="audio/wav")
