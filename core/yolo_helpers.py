@@ -1,17 +1,42 @@
-from ultralytics import YOLO
-import numpy as np
-import cv2
+import threading
 
-yolo_model = YOLO("yolo26n.pt")
+import cv2
+import numpy as np
+from ultralytics import YOLO
+
 INTEREST_CLASSES = {"person", "car", "bus", "truck", "motorcycle", "bicycle"}
 
-def detect_objects(frame: np.ndarray, conf_threshold: float = 0.45):
-    results = yolo_model(frame, verbose=False)[0]
+# Default confidence threshold for YOLO detections.
+_CONF_THRESHOLD = 0.45
+
+_model_lock = threading.Lock()
+_model_local = threading.local()
+
+
+def _get_model() -> YOLO:
+    """Return a per-thread YOLO instance, downloading weights on first use.
+
+    Thread-local instances avoid concurrent inference on a shared model, and the
+    lock prevents duplicate downloads racing on the very first request.
+    """
+    model = getattr(_model_local, "model", None)
+    if model is None:
+        with _model_lock:
+            model = getattr(_model_local, "model", None)
+            if model is None:
+                model = YOLO("yolo26n.pt")
+                _model_local.model = model
+    return model
+
+
+def detect_objects(frame: np.ndarray, conf_threshold: float = _CONF_THRESHOLD):
+    model = _get_model()
+    results = model(frame, verbose=False)[0]
     detections = []
 
     for box in results.boxes:
         cls_id = int(box.cls[0])
-        label = yolo_model.names[cls_id]
+        label = model.names[cls_id]
         conf = float(box.conf[0])
 
         if conf < conf_threshold or label not in INTEREST_CLASSES:

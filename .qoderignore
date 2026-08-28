@@ -1,0 +1,7 @@
+node_modules/
+dist/
+website/
+website/**
+
+test_videos/
+test_videos/**

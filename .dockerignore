@@ -1,0 +1,16 @@
+__pycache__/
+*.py[codz]
+*.pyc
+.env
+.venv
+venv/
+.git/
+.gitignore
+test/
+website/node_modules/
+website/dist/
+addons.txt
+architecture diagram.txt
+*.mp4
+*.avi
+*.mov
