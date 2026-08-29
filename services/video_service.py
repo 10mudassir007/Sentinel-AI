@@ -4,8 +4,18 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from core.agent import get_incident_agent
 from core.config import MAX_FRAMES_TO_ANALYZE, SYSTEM_PROMPT
+from core.escalation import tracker_for
 from core.tools import pop_dispatch_info, set_dispatch_context
 from services.process_video import process_video_for_incidents
+
+
+# Answer used when the escalation state machine has not confirmed an incident
+# yet: no agent run, no dispatch - the flood is throttled instead of being
+# re-evaluated from scratch on every upload.
+_MONITORING_ANSWER = (
+    "No confirmed incident yet. The system is continuing to monitor this "
+    "camera; an alert will be dispatched if the incident is confirmed."
+)
 
 
 def _extract_agent_answer(messages: list) -> str:
@@ -28,6 +38,7 @@ def analyze_video(
     max_frames_analyzed: int | None = MAX_FRAMES_TO_ANALYZE,
     languages: list[str] | None = None,
     location: dict | None = None,
+    camera_id: str | None = None,
 ) -> tuple[dict, str, list[dict] | None]:
     agent = get_incident_agent()
 
@@ -35,17 +46,25 @@ def analyze_video(
     # in the voice message) and to the agent (it mentions it in its answer).
     set_dispatch_context(location)
     try:
-        return _analyze(video_path, agent, max_frames_analyzed, languages, location)
+        return _analyze(video_path, agent, max_frames_analyzed, languages, location, camera_id)
     finally:
         set_dispatch_context(None)
 
 
-def _analyze(video_path, agent, max_frames_analyzed, languages, location):
+def _analyze(video_path, agent, max_frames_analyzed, languages, location, camera_id):
     video_analysis = process_video_for_incidents(
         video_path,
         max_frames_analyzed=max_frames_analyzed,
         languages=languages,
+        camera_id=camera_id,
     )
+
+    # The agent - and with it the 1122 dispatch tools - runs only when the
+    # per-camera escalation state machine reached ALERT. Repeated gated
+    # detections while CONFIRMING are what authorize it; anything else is
+    # throttled without an LLM call.
+    if not video_analysis.get("alert"):
+        return video_analysis, _MONITORING_ANSWER, None
 
     context = ""
     if location:
@@ -60,10 +79,16 @@ def _analyze(video_path, agent, max_frames_analyzed, languages, location):
         )
     )
 
-    response = agent.invoke({"messages": [message]})
+    tracker = tracker_for(video_analysis["camera_id"])
+    try:
+        response = agent.invoke({"messages": [message]})
 
-    # Tool calls ran synchronously in this thread; collect their dispatch
-    # results (SIP call outcomes + generated audio) for the API response.
-    dispatch = pop_dispatch_info()
+        # Tool calls ran synchronously in this thread; collect their dispatch
+        # results (SIP call outcomes + generated audio) for the API response.
+        dispatch = pop_dispatch_info()
+    finally:
+        # ALERT -> COOLDOWN: one dispatch attempt per incident lifecycle,
+        # whether or not the tools succeeded.
+        tracker.mark_alert_done()
 
     return video_analysis, _extract_agent_answer(response["messages"]), dispatch

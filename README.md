@@ -40,7 +40,8 @@ Sentinel-AI/
 ├── test/ # Contains Test Videos
 ├── .dockerignore
 ├── .env.example
-├── DockerFile
+├── docker-compose.yml
+├── Dockerfile
 ├── main.py
 ├── requirements.txt
 └── README.md
@@ -87,9 +88,10 @@ GROQ_API_KEY=your_groq_api_key
 | Variable | Purpose | Default |
 |---|---|---|
 | `TOKEN_TTL_HOURS` | Lifetime of bearer tokens issued by `POST /login` (CNIC-based auth) | `24` |
+| `PORT` | Port served by `python main.py` and the Docker container | `8754` |
 | `AUTHORIZED_CNICS` | Semicolon-separated **Argon2id hashes** of CNICs allowed to log in (never plaintext); generate with `python tools/hash_cnic.py <cnic>`; empty = nobody can log in | *(empty)* |
 | `TRUSTED_PROXY` | Set to `1` when the API runs behind a trusted reverse proxy, so rate limiting keys on the real client IP | `0` |
-| `CORS_ORIGINS` | Comma-separated browser origins allowed to call the API (add your Vercel domain in production) | `http://localhost:8080` |
+| `CORS_ORIGINS` | Comma-separated browser origins allowed to call the API (add your Vercel domain in production) | `http://localhost:8754` |
 | `MAX_UPLOAD_MB` | Maximum upload size | `200` |
 | `MAX_FRAMES_TO_ANALYZE` | Cap on vision-model calls per request (bounds LLM cost) | `30` |
 | `YOLO_MODEL_PATH` | Weights file for the stock YOLO model (base COCO; no custom training used) | `yolo26n.pt` |
@@ -130,7 +132,7 @@ All endpoints require a bearer token except `POST /login` and the `GET /health` 
 **1. Get a token** — `POST /login` with a valid CNIC (`12345-1234567-1` or 13 plain digits):
 
 ```bash
-curl -X POST http://localhost:8080/login \
+curl -X POST http://localhost:8754/login \
   -H "Content-Type: application/json" \
   -d '{"cnic": "42101-2345678-9"}'
 ```
@@ -148,7 +150,7 @@ and paste the printed `$argon2id$...` value into `AUTHORIZED_CNICS` (semicolon-s
 **2. Call the API** with the returned token:
 
 ```bash
-curl -X POST http://localhost:8080/analyze-video \
+curl -X POST http://localhost:8754/analyze-video \
   -H "Authorization: Bearer <access_token>" \
   -F "file=@test/car2.mp4" \
   -F "language=ur" \
@@ -198,13 +200,33 @@ The API writes the WAV into both `ASTERISK_SOUNDS_DIR` (for Asterisk playback) a
 
 > ⚠ Calls are placed automatically the moment the agent decides to. A human-in-loop approval gate is strongly recommended before live deployment.
 
-## ▶️ Start the server
+## ▶️ Run the server
+
+Two equivalent ways to run the API, both serving port **8754** (`GET http://localhost:8754/health` returns `{"status": "ok"}`):
+
+**Option A — Docker (recommended):**
 
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8080
+cp .env.example .env   # first time only, then fill it in
+docker compose up --build
 ```
 
-When running from Docker (the default `CMD`) the service is already on port **8080**. For local development without Docker, either use port 8080 (matching the examples below) or the uvicorn default `8000`.
+The image uses `python:3.11-slim`, pre-downloads the YOLO weights at build time, and runs the exact same command as the manual mode (`python main.py`). Your `.env` is mounted read-only into the container — the API reads it itself, exactly like manual mode — so Argon2 hashes (`$argon2id$...`) pass through untouched (a compose `env_file` would mangle them). Generated alert audio is kept in a named Docker volume so it survives container rebuilds. Docker may print harmless `$`-interpolation warnings if your `.env` contains hashes; they do not affect the container.
+
+**Option B — Python directly:**
+
+```bash
+pip install -r requirements.txt
+python main.py
+```
+
+The server binds `0.0.0.0` and reads the port from the `PORT` environment variable (default `8754`):
+
+```bash
+PORT=9000 python main.py
+```
+
+If you change `PORT`, also update the `ports:` mapping in `docker-compose.yml` for the Docker mode.
 
 ## 🧪 Test Videos
 

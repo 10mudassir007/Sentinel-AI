@@ -1,4 +1,5 @@
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,3 +44,17 @@ app.include_router(router)
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+def run() -> None:
+    """Serve the API:  python main.py  (default port 8754)."""
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "8754")),
+    )
+
+
+if __name__ == "__main__":
+    run()

@@ -213,3 +213,5 @@ node_modules/
 sentinel-ai
 
 addons.txt
+tools/
+tools/**

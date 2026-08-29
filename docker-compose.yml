@@ -1,0 +1,22 @@
+# Run the API in Docker:  docker compose up --build
+# Equivalent to running  python main.py  on the same port.
+services:
+  sentinel-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sentinel-ai
+    restart: unless-stopped
+    # Host 8754 -> container 8754 (matches the PORT env default in main.py).
+    ports:
+      - "8754:8754"
+    volumes:
+      # The API reads .env itself (python-dotenv, same as manual mode) via a
+      # read-only mount - env_file is not used because compose interpolates
+      # $ signs, which would corrupt Argon2 hashes in AUTHORIZED_CNICS.
+      - ./.env:/app/.env:ro
+      # Keep generated alert audio across container rebuilds.
+      - sentinel_audio:/app/generated_audio
+
+volumes:
+  sentinel_audio:

@@ -9,8 +9,9 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     raise RuntimeError("GROQ_API_KEY not found")
 
-# Set to 1/true when the API runs behind a trusted reverse proxy, so the rate
-# limiter keys on the real client IP from X-Forwarded-For instead of the proxy.
+# Set to 1/true when the API runs behind a trusted reverse proxy, so rate
+# limiting and the per-source queue key on the real client IP from
+# X-Forwarded-For instead of the proxy.
 TRUSTED_PROXY = os.getenv("TRUSTED_PROXY", "").strip().lower() in ("1", "true", "yes", "on")
 
 
@@ -39,6 +40,10 @@ def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
 # Maximum accepted upload size in bytes (plus multipart overhead handled separately).
 MAX_UPLOAD_MB = _env_int("MAX_UPLOAD_MB", 200, minimum=1)
 MAX_UPLOAD_SIZE = MAX_UPLOAD_MB * 1024 * 1024
+
+# Maximum accepted video duration in seconds; longer uploads are rejected
+# before any analysis work starts.
+MAX_VIDEO_SECONDS = _env_float("MAX_VIDEO_SECONDS", 15.0, minimum=1.0)
 
 # Per-IP request limit per minute; 0 disables rate limiting.
 RATE_LIMIT_PER_MINUTE = _env_int("RATE_LIMIT_PER_MINUTE", 30, minimum=0)
@@ -78,6 +83,31 @@ YOLO_INTEREST_CLASSES = _parse_classes(
     os.getenv("YOLO_INTEREST_CLASSES", "person,bicycle,car,motorcycle,bus,truck,knife")
 )
 
+
+# --- Escalation state machine (per-camera) ----------------------------
+# One incident lifecycle per camera: IDLE -> SUSPICIOUS -> CONFIRMING ->
+# ALERT -> COOLDOWN. Only the SUSPICIOUS -> CONFIRMING transition runs the
+# vision LLM; only repeated gated detections while CONFIRMING authorize the
+# agent to dispatch (e.g. call 1122 over the SIP trunk).
+
+# Seconds a camera may stay in SUSPICIOUS/CONFIRMING without a new gated
+# detection before the lifecycle decays back to IDLE.
+ESCALATION_WINDOW_S = _env_float("ESCALATION_WINDOW_S", 60.0, minimum=1.0)
+
+# Gated detections required while CONFIRMING to escalate to ALERT and
+# dispatch. Minimum 2: entering CONFIRMING is the first confirming hit, so
+# at least one repeat detection must confirm the incident before 1122 is
+# called.
+ESCALATION_CONFIRMING_HITS = _env_int("ESCALATION_CONFIRMING_HITS", 3, minimum=2)
+
+# Seconds ALERT persists before decaying back to IDLE (safety net if the
+# dispatch step never finishes).
+ESCALATION_ALERT_TIMEOUT_S = _env_float("ESCALATION_ALERT_TIMEOUT_S", 30.0, minimum=1.0)
+
+# Seconds after a dispatch attempt before the same camera may alert again
+# (0 disables the cooldown).
+ESCALATION_COOLDOWN_S = _env_float("ESCALATION_COOLDOWN_S", 300.0, minimum=0.0)
+
 # Language codes the vision model must use for frame descriptions.
 SUPPORTED_DESCRIPTION_LANGUAGES = ("en", "ur")
 
@@ -114,7 +144,7 @@ AUTHORIZED_CNICS = _parse_cnic_list(os.getenv("AUTHORIZED_CNICS", ""))
 CORS_ORIGINS = _parse_origins(
     os.getenv(
         "CORS_ORIGINS",
-        "http://localhost:8080,http://localhost:5173,http://127.0.0.1:8080",
+        "http://localhost:8754,http://localhost:5173,http://127.0.0.1:8754",
     )
 )
 

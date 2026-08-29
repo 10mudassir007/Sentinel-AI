@@ -10,8 +10,7 @@ from core.config import (
     YOLO_MODEL_PATH,
 )
 
-# Classes that justify escalating a frame to the vision LLM (env-configurable;
-# stock COCO: person, vehicles and knife - see README).
+# YOLO classes that justify escalating a frame (env-configurable).
 INTEREST_CLASSES = YOLO_INTEREST_CLASSES
 
 _model_lock = threading.Lock()

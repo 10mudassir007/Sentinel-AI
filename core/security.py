@@ -11,6 +11,8 @@ import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
 
+logger = logging.getLogger(__name__)
+
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from fastapi import Header, HTTPException
@@ -161,8 +163,12 @@ def require_auth(authorization: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=401, detail="Missing or invalid token")
 
 
-def _client_ip(scope: dict) -> str:
-    """Best-effort client IP; X-Forwarded-For is only trusted behind a proxy."""
+def client_ip(scope: dict) -> str:
+    """Best-effort client IP; X-Forwarded-For is only trusted behind a proxy.
+
+    Used by the rate limiter and by the per-source processing queue so both
+    agree on who the client is, including when deployed behind a proxy.
+    """
     client = scope.get("client")
     ip = client[0] if client else "unknown"
 
@@ -173,6 +179,14 @@ def _client_ip(scope: dict) -> str:
         }
         forwarded = headers.get("x-forwarded-for", "")
         first = forwarded.split(",")[0].strip() if forwarded else ""
+        if first:
+            try:
+                ipaddress.ip_address(first)
+            except ValueError:
+                # A malformed header is ignored rather than trusted; otherwise
+                # a misconfigured proxy could be abused to forge client IPs.
+                logger.warning("Ignoring invalid X-Forwarded-For value %r", first)
+                first = ""
         if first:
             ip = first
 
@@ -206,7 +220,7 @@ class RateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        ip = _client_ip(scope)
+        ip = client_ip(scope)
         now = time.monotonic()
 
         async with self._lock:

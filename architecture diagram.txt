@@ -1,19 +1,24 @@
 architecture diagram
 
-POST /analyze-video (MP4/AVI/MOV + optional latitude/longitude)
+POST /analyze-video (MP4/AVI/MOV, max MAX_VIDEO_SECONDS, optional latitude/longitude/camera_id)
         │
         ▼
 api/routes.py ──► services/geocode.reverse_geocode()  (external API, e.g. Nominatim)
         │         coordinates → readable location (street, city)
         ▼
-services/video_service.analyze_video(location)
+services/video_service.analyze_video(location, camera_id)
                         │
                         ├─► services/process_video.process_video_for_incidents()
                         │      │  OpenCV: motion scoring (absdiff → blur → threshold)
                         │      │  YOLO: core/yolo_helpers.detect_objects()
-                        │      └─► Vision LLM: core/llm.get_vision_llm() per frame
+                        │      │  Escalation: core/escalation.py per-camera state machine
+                        │      │    IDLE → SUSPICIOUS → CONFIRMING → ALERT → COOLDOWN;
+                        │      │    vision LLM runs ONLY on SUSPICIOUS → CONFIRMING,
+                        │      │    repeated gated detections in CONFIRMING authorize 1122,
+                        │      │    COOLDOWN throttles re-alerts per camera
+                        │      └─► Vision LLM: core/llm.get_vision_llm() (once per lifecycle)
                         │
-                        └─► core/agent.get_incident_agent()  (LangChain agent + tools)
+                        └─► core/agent.get_incident_agent()  (runs only on ALERT)
                                └─► core/tools: call_ambulance / call_police / call_firebrigade
                                       │  voice message = LLM description + resolved location
                                       │  ("This incident has occurred at …")
@@ -68,6 +73,11 @@ services/video_service.analyze_video(location)
 │      capped at 10k)                                                   │
 │    • POST /analyze-video: requires valid Bearer token (else 401)      │
 │    • validates extension + magic bytes, enforces size limit           │
+│    • probes duration via OpenCV; rejects clips longer than            │
+│      MAX_VIDEO_SECONDS (422) before any analysis work                 │
+│    • per-source queue: same camera_id (or client IP when absent)      │
+│      serialized - next clip starts only after the previous one        │
+│      finished and responded                                          │
 │    • streams upload to temp file (cleanup on all paths),              │
 │      analysis offloaded to a thread pool                              │
 │    • returns: filename, incident count, video_analysis,               │  
@@ -86,7 +96,7 @@ services/video_service.analyze_video(location)
 │      Nominatim default, no key) → display_name, label, address      │
 │    • cached per rounded coordinate; failure degrades to raw coords  │
 │                                                                   │
-│  services/process_video.process_video_for_incidents(path)         │
+│  services/process_video.process_video_for_incidents(path, camera_id) │
 │    • config: target_fps=1, start_pct/end_pct range                │
 │    • OpenCV frame loop: FRAME_SKIP, motion scoring                │
 │      (absdiff → grayscale → GaussianBlur → threshold,             │
@@ -95,7 +105,11 @@ services/video_service.analyze_video(location)
 │    • YOLO detection → core/yolo_helpers.detect_objects()          │
 │      (env-tunable interest classes + confidence gate; discards     │
 │       logged locally - never escalate without a relevant class)    │
-│    • per-frame vision analysis w/ previous description as context │
+│    • escalation gate → core/escalation per-camera state machine:   │
+│      gated frames feed the lifecycle; vision LLM only on           │
+│      SUSPICIOUS → CONFIRMING (once), repeated CONFIRMING hits →    │
+│      ALERT (dispatch), COOLDOWN blocks re-alerts; throttled        │
+│      frames logged locally, agent runs only when alert=True        │
 │    • builds incidents[]: {timestamp, objects, llm_description}    │
 └───────────────┬────────────────────────────────┬──────────────────┘
                 ▼                                ▼
@@ -111,6 +125,11 @@ services/video_service.analyze_video(location)
 │  core/agent.py ── get_incident_agent()                            │
 │    • langchain create_agent(model, tools, system_prompt)          │
 │                                                                   │
+│  core/escalation.py ── per-camera escalation state machine        │
+│    • IDLE → SUSPICIOUS → CONFIRMING → ALERT → COOLDOWN            │
+│    • thread-safe registry (tracker_for / reset), lazy decay       │
+│    • ALERT guard: no double dispatch while an alert is in flight  │
+│                                                                   │
 │  core/tools.py ── real emergency dispatch via SIP trunking      │
 │    • call_ambulance(1122) / call_police(15) / call_firebrigade(16) │
 │    • voice message from LLM description + resolved location:       │
@@ -125,10 +144,14 @@ services/video_service.analyze_video(location)
                                 ▼
 ┌─────────────────────────── ENV / DEPLOYMENT ───────────────────────┐
 │  .env  ── GROQ_API_KEY (required at import time)                   │
+│  Limits ── MAX_UPLOAD_MB, MAX_VIDEO_SECONDS (15s default)          │
 │  Groq API ── chat completions (LLM + vision)                       │
 │  YOLO model ── stock COCO weights (yolo26n.pt); gating classes:   │
 │               person, vehicles, knife - no custom training        │
-│  DockerFile ── python:3.11-slim, uvicorn main:app :8080            │
+│  Escalation env ── ESCALATION_WINDOW_S / _CONFIRMING_HITS /       │
+│               _ALERT_TIMEOUT_S / _COOLDOWN_S (per-camera          │
+│               throttling, see .env.example)                       │
+│  Dockerfile + compose ── python:3.11-slim, python main.py :8754   │
 │  website ── Vercel deployment (vercel.json)                        │
 │  test/ ── sample MP4s for the pipeline                             │
 └────────────────────────────────────────────────────────────────────┘

@@ -1,24 +1,38 @@
 """Reverse geocoding: exact coordinates -> human-readable location.
 
-Uses Nominatim (OpenStreetMap) by default — free, no API key. Override the
-endpoint with REVERSE_GEOCODE_URL if you prefer another provider.
+Uses geopy's Nominatim geocoder (OpenStreetMap) by default - free, no API
+key. Override REVERSE_GEOCODE_URL with any Nominatim-compatible host.
 """
 
 import logging
 import threading
+from urllib.parse import urlparse
 
-import httpx
+from geopy.geocoders import Nominatim
 
 from core.config import REVERSE_GEOCODE_URL
 
 logger = logging.getLogger(__name__)
 
-# Nominatim policy: identify the app and keep request volume low. Results are
-# cached per rounded coordinate to avoid repeated calls for the same spot.
-_HEADERS = {"User-Agent": "Sentinel-AI/1.0 (automated incident alerting)"}
 _TIMEOUT_S = 10.0
 _CACHE_LIMIT = 1_000
 
+
+def _make_geolocator() -> Nominatim:
+    """Nominatim geocoder for the configured host (official geopy library)."""
+    parts = urlparse(REVERSE_GEOCODE_URL)
+    return Nominatim(
+        user_agent="Sentinel-AI/1.0 (automated incident alerting)",
+        domain=parts.netloc or "nominatim.openstreetmap.org",
+        scheme=parts.scheme or "https",
+        timeout=_TIMEOUT_S,
+    )
+
+
+_geolocator = _make_geolocator()
+
+# Results are cached per rounded coordinate to avoid repeated calls for the
+# same spot (Nominatim policy: identify the app, keep request volume low).
 _cache: dict[tuple[float, float], dict] = {}
 _cache_lock = threading.Lock()
 
@@ -53,23 +67,18 @@ def reverse_geocode(latitude: float, longitude: float) -> dict:
         if cached is not None:
             return dict(cached)
 
-    response = httpx.get(
-        REVERSE_GEOCODE_URL,
-        params={
-            "lat": latitude,
-            "lon": longitude,
-            "format": "jsonv2",
-            "zoom": 16,  # street level
-            "addressdetails": 1,
-            "accept-language": "en",
-        },
-        headers=_HEADERS,
-        timeout=_TIMEOUT_S,
+    location = _geolocator.reverse(
+        (latitude, longitude), language="en", zoom=16, addressdetails=True
     )
-    response.raise_for_status()
-    data = response.json()
+    if location is None:
+        raise ValueError(
+            f"Reverse geocoding returned no result for {latitude}, {longitude}"
+        )
+    data = location.raw
     if not data.get("display_name"):
-        raise ValueError(f"Reverse geocoding returned no result: {data.get('error', 'empty')}")
+        raise ValueError(
+            f"Reverse geocoding returned no result: {data.get('error', 'empty')}"
+        )
 
     result = {
         "latitude": latitude,

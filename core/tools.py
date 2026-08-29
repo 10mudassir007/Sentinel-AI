@@ -24,7 +24,6 @@ import uuid
 import wave
 from pathlib import Path
 
-import httpx
 from langchain.tools import tool
 from panoramisk import Manager
 
@@ -55,7 +54,7 @@ _SERVICE_URDU = {
     "fire": "فائر بریگیڈ",
 }
 
-# Asterisk dialplan contract for the outbound call (see README).
+# Asterisk dialplan contract for the outbound call.
 _SIP_TRUNK = "sentinel-trunk"
 _OUTBOUND_CONTEXT = "sentinel-outbound"
 _OUTBOUND_EXTEN = "alert"
@@ -65,6 +64,12 @@ _AMI_CONNECT_TIMEOUT_S = 5.0
 _AUDIO_TIMEOUT_S = 30.0
 
 _MAX_SCRIPT_CHARS = 300
+
+# Generated alert audio is served to clients, so it is never deleted while
+# young; past this age it is pruned (best-effort) to stop the output
+# directory from filling the disk over time.
+_AUDIO_RETENTION_S = 24 * 60 * 60
+_AUDIO_KEEP_MAX = 200
 
 # edge-tts voices per language (fallback synthesis, no API key needed).
 _EDGE_TTS_VOICES = {"ur": "ur-PK-UzmaNeural", "en": "en-US-AriaNeural"}
@@ -121,16 +126,17 @@ def _write_pcm_wav(path: Path, pcm: bytes) -> None:
 
 
 def _synth_elevenlabs(script: str, out_path: Path) -> None:
-    """Synthesize with ElevenLabs, requesting raw PCM (no ffmpeg needed)."""
-    response = httpx.post(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
-        headers={"xi-api-key": ELEVENLABS_API_KEY},
-        params={"output_format": "pcm_16000"},
-        json={"text": script, "model_id": ELEVENLABS_MODEL_ID},
-        timeout=_AUDIO_TIMEOUT_S,
+    """Synthesize with the official ElevenLabs SDK, requesting raw PCM."""
+    import elevenlabs  # lazy import so tests can stub it
+
+    client = elevenlabs.ElevenLabs(api_key=ELEVENLABS_API_KEY)
+    audio = client.text_to_speech.convert(
+        voice_id=ELEVENLABS_VOICE_ID,
+        text=script,
+        model_id=ELEVENLABS_MODEL_ID,
+        output_format="pcm_16000",
     )
-    response.raise_for_status()
-    _write_pcm_wav(out_path, response.content)
+    _write_pcm_wav(out_path, b"".join(audio))
 
 
 def _synth_edge_tts(script: str, lang: str, out_path: Path) -> None:
@@ -182,7 +188,34 @@ def _synthesize_voice_message(script: str, lang: str) -> dict:
         except OSError:
             logger.warning("Could not copy alert audio into %s", sounds_dir)
 
+    _prune_old_audio(api_dir, keep_name=name)
+
     return {"name": name, "url": f"/audio/{name}"}
+
+
+def _prune_old_audio(api_dir: Path, keep_name: str) -> None:
+    """Delete stale alert files once the output directory grows past a cap.
+
+    Only files older than the retention window are removed, and never the
+    file just written (it may already be referenced by an in-flight result).
+    """
+    try:
+        files = sorted(
+            api_dir.glob("alert-*.wav"), key=lambda p: p.stat().st_mtime
+        )
+    except OSError:
+        return
+    if len(files) <= _AUDIO_KEEP_MAX:
+        return
+    cutoff = time.time() - _AUDIO_RETENTION_S
+    for path in files:
+        if path.name == keep_name:
+            continue
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            continue
 
 
 def _ami_status(response) -> str:

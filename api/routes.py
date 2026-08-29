@@ -1,9 +1,12 @@
+import asyncio
 import logging
 import os
+import threading
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+import cv2
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
@@ -12,9 +15,10 @@ from core.config import (
     AUDIO_OUTPUT_DIR,
     DESCRIPTION_LANGUAGES,
     MAX_UPLOAD_SIZE,
+    MAX_VIDEO_SECONDS,
     SUPPORTED_DESCRIPTION_LANGUAGES,
 )
-from core.security import create_session, require_auth
+from core.security import client_ip, create_session, require_auth
 from services.geocode import reverse_geocode
 from services.video_service import analyze_video
 
@@ -112,12 +116,71 @@ def _resolve_location(latitude: str, longitude: str) -> dict | None:
         }
 
 
+# --- Per-source processing queue --------------------------------------
+# Requests from the same source (camera_id, or the client IP when no
+# camera_id is sent) are serialized: a new clip waits until the previous
+# analysis finishes and its response has been sent, then starts.
+_source_locks: dict[str, asyncio.Lock] = {}
+_source_locks_guard = threading.Lock()
+_MAX_QUEUED_SOURCES = 1024
+_MAX_SOURCE_KEY_LEN = 256
+
+
+def _source_key(camera_id: str, request: Request) -> str:
+    """Queue key: camera_id wins, else the proxy-aware client IP.
+
+    The camera_id is attacker-supplied, so it is capped before use as a
+    registry key; the IP follows the same X-Forwarded-For rules as the rate
+    limiter so a reverse proxy does not collapse all clients into one slot.
+    """
+    if camera_id:
+        return camera_id[:_MAX_SOURCE_KEY_LEN]
+    return client_ip(request.scope)
+
+
+def _source_lock(source: str) -> asyncio.Lock:
+    """Get (or create) the queue lock for one source."""
+    with _source_locks_guard:
+        lock = _source_locks.get(source)
+        if lock is None:
+            if len(_source_locks) >= _MAX_QUEUED_SOURCES:
+                _source_locks.clear()
+            lock = asyncio.Lock()
+            _source_locks[source] = lock
+        return lock
+
+
+def _probe_duration(path: str) -> float | None:
+    """Return the video duration in seconds, or None when it cannot be read.
+
+    A probe that fails never blocks the request: unknown duration passes.
+    """
+    cap = cv2.VideoCapture(path)
+    try:
+        if not cap.isOpened():
+            return None
+        # Seek to the end (O(1) for most containers) and read the position.
+        if cap.set(cv2.CAP_PROP_POS_AVI_RATIO, 1.0):
+            msec = cap.get(cv2.CAP_PROP_POS_MSEC)
+            if msec and msec > 0:
+                return msec / 1000.0
+        fps = cap.get(cv2.CAP_PROP_FPS) or 1.0
+        frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if frames > 0:
+            return frames / fps
+        return None
+    finally:
+        cap.release()
+
+
 @router.post("/analyze-video")
 async def analyze_video_endpoint(
+    request: Request,
     file: UploadFile = File(...),
     language: str = Form(""),
     latitude: str = Form(""),
     longitude: str = Form(""),
+    camera_id: str = Form(""),
     _: None = Depends(require_auth),
 ):
     if not _has_supported_extension(file.filename):
@@ -132,6 +195,10 @@ async def analyze_video_endpoint(
     languages = _parse_language_param(language)
     location = _resolve_location(latitude, longitude)
 
+    # Queue key: an explicit camera_id wins; otherwise the client IP defines
+    # the source so one-off uploads from the same client also serialize.
+    source = _source_key(camera_id, request)
+
     tmp_path = None
     try:
         with NamedTemporaryFile(
@@ -145,9 +212,29 @@ async def analyze_video_endpoint(
                     raise HTTPException(status_code=413, detail="File exceeds size limit")
                 tmp.write(chunk)
 
-        video_analysis, agent_answer, dispatch = await run_in_threadpool(
-            analyze_video, tmp_path, languages=languages, location=location
-        )
+        # Duration gate: reject clips longer than MAX_VIDEO_SECONDS before any
+        # analysis work starts (an unreadable probe passes - never blocks).
+        duration = _probe_duration(tmp_path)
+        if duration is not None and duration > MAX_VIDEO_SECONDS:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Video exceeds the maximum allowed duration of "
+                    f"{MAX_VIDEO_SECONDS:g} seconds"
+                ),
+            )
+
+        # Per-source queue: the next clip from this source starts processing
+        # only after this one finished and its response was sent back.
+        lock = _source_lock(source)
+        await lock.acquire()
+        try:
+            video_analysis, agent_answer, dispatch = await run_in_threadpool(
+                analyze_video, tmp_path, languages=languages, location=location,
+                camera_id=camera_id or None,
+            )
+        finally:
+            lock.release()
     except HTTPException:
         raise
     except Exception:
@@ -162,7 +249,9 @@ async def analyze_video_endpoint(
 
     return {
         "filename": file.filename,
+        "camera_id": video_analysis.get("camera_id"),
         "location": location,
+        "escalation": video_analysis.get("escalation"),
         "incidents_detected": len(video_analysis.get("incidents", [])),
         "video_analysis": video_analysis,
         "agent_response": agent_answer,

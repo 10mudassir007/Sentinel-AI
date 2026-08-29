@@ -7,6 +7,7 @@ import numpy as np
 from langchain_core.messages import HumanMessage
 
 from core.config import DESCRIPTION_LANGUAGES, YOLO_CONF_THRESHOLD
+from core.escalation import ALERT_ACTION, ANALYZE, IGNORE, tracker_for
 from core.llm import get_vision_llm
 from core.yolo_helpers import detect_objects, draw_detections
 
@@ -113,7 +114,8 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
                                 start_pct: float = 0.0, end_pct: float = 1.0,
                                 show_frames: bool = False,
                                 max_frames_analyzed: int | None = None,
-                                languages: list[str] | None = None) -> dict:
+                                languages: list[str] | None = None,
+                                camera_id: str | None = None) -> dict:
     if target_fps <= 0:
         raise ValueError("target_fps must be positive")
     if not 0.0 <= start_pct <= end_pct <= 1.0:
@@ -141,6 +143,14 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
     # Gating counters: every discarded frame is logged locally (never escalates).
     motion_discards = 0
     detection_discards = 0
+    throttled_frames = 0
+
+    # Gate 3 - per-camera escalation state machine. The key defaults to the
+    # video path so one-off uploads never share a lifecycle; clients that
+    # send a camera_id get true cross-upload throttling for that camera.
+    tracker_key = camera_id or video_path
+    tracker = tracker_for(tracker_key)
+    alert_triggered = False
 
     FRAME_SKIP = max(int(fps / target_fps), 1)
 
@@ -194,7 +204,7 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
                 continue
 
             # Gate 2 - YOLO: only frames with an interest class above the
-            # confidence threshold are escalated to the vision LLM.
+            # confidence threshold pass to the escalation state machine.
             detections = detect_objects(frame)
             if not detections:
                 detection_discards += 1
@@ -206,7 +216,35 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
                 frame_index += 1
                 continue
 
-            # Analyze frame immediately with previous context
+            # Gate 3 - escalation state machine: track one incident lifecycle
+            # per camera instead of re-evaluating from scratch on every frame.
+            # Only the SUSPICIOUS -> CONFIRMING transition runs the vision
+            # LLM; repeated gated detections while CONFIRMING are what
+            # authorize the dispatch, and COOLDOWN blocks flood re-alerts.
+            action = tracker.on_gated_detection()
+            if action == ALERT_ACTION:
+                # Confirming hits reached: the agent/dispatch runs after the
+                # scan (it needs the collected evidence). Stop feeding the
+                # tracker - the incident is confirmed.
+                alert_triggered = True
+                logger.info(
+                    "Camera %s: incident confirmed at %.2fs - dispatch authorized",
+                    tracker_key, timestamp,
+                )
+                break
+
+            if action == IGNORE:
+                throttled_frames += 1
+                logger.debug(
+                    "Frame at %.2fs throttled by escalation state machine "
+                    "(camera %s, state %s)",
+                    timestamp, tracker_key, tracker.state,
+                )
+                frame_index += 1
+                continue
+
+            # action == ANALYZE: the vision LLM runs once per incident
+            # lifecycle; this description is the incident evidence.
             try:
                 description = analyze_frame(frame, last_description, languages=languages)
             except Exception as exc:
@@ -237,14 +275,19 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
             cv2.destroyAllWindows()
 
     logger.info(
-        "Gating summary for %s: %d frames below motion threshold, "
-        "%d frames with no relevant detection, %d frames escalated to the LLM",
-        video_path, motion_discards, detection_discards, len(incidents),
+        "Gating summary for %s (camera %s): %d frames below motion threshold, "
+        "%d frames with no relevant detection, %d frames throttled by the "
+        "escalation state machine, %d frames escalated to the LLM, alert=%s",
+        video_path, tracker_key, motion_discards, detection_discards,
+        throttled_frames, len(incidents), alert_triggered,
     )
 
     return {
         "total_frames": total_frames,
-        "incidents": incidents
+        "camera_id": tracker_key,
+        "incidents": incidents,
+        "alert": alert_triggered,
+        "escalation": tracker.snapshot(),
     }
 
 
