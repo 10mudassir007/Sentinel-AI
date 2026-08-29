@@ -15,10 +15,10 @@ confirmation and the real outcome is surfaced to the API client only.
 """
 
 import asyncio
+import contextvars
 import json
 import logging
 import subprocess
-import threading
 import time
 import uuid
 import wave
@@ -75,8 +75,18 @@ _AUDIO_KEEP_MAX = 200
 _EDGE_TTS_VOICES = {"ur": "ur-PK-UzmaNeural", "en": "en-US-AriaNeural"}
 
 # Dispatch results recorded by tools during an agent run; consumed by
-# services/video_service.py via pop_dispatch_info() on the same worker thread.
-_dispatch_registry = threading.local()
+# services/video_service.py via pop_dispatch_info() on the same request.
+#
+# contextvars.ContextVar is used instead of threading.local() because
+# LangGraph's ToolNode runs each tool call in a separate worker thread
+# via ContextThreadPoolExecutor (which propagates contextvars via
+# copy_context() but NOT threading.local()).
+_dispatch_context_var: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "dispatch_context", default=None
+)
+_dispatch_results_var: contextvars.ContextVar[list[dict] | None] = contextvars.ContextVar(
+    "dispatch_results", default=None
+)
 
 
 # --- Request context ---------------------------------------------------
@@ -85,12 +95,18 @@ _dispatch_registry = threading.local()
 # the voice message without relying on the LLM to pass it through.
 
 def set_dispatch_context(location: dict | None) -> None:
-    """Stash the request location for tools running in this thread."""
-    _dispatch_registry.context = location
+    """Stash the request location for tools running in this request.
+
+    Uses contextvars.ContextVar so the value is propagated by
+    ContextThreadPoolExecutor.copy_context() when LangGraph runs
+    tool calls in worker threads.
+    """
+    _dispatch_context_var.set(location)
+    _dispatch_results_var.set([])
 
 
 def _dispatch_context() -> dict | None:
-    return getattr(_dispatch_registry, "context", None)
+    return _dispatch_context_var.get()
 
 
 def _alert_script(
@@ -168,7 +184,11 @@ def _synth_edge_tts(script: str, lang: str, out_path: Path) -> None:
 
 
 def _synthesize_voice_message(script: str, lang: str) -> dict:
-    """Generate the alert audio into the API and Asterisk directories."""
+    """Generate the alert audio into the API and Asterisk directories.
+
+    Tries ElevenLabs first when a key is configured; falls back to edge-tts
+    on any failure (missing key, quota exhausted, invalid voice/model, etc.).
+    """
     name = f"alert-{uuid.uuid4().hex[:8]}-{int(time.time())}.wav"
 
     api_dir = Path(AUDIO_OUTPUT_DIR)
@@ -176,7 +196,14 @@ def _synthesize_voice_message(script: str, lang: str) -> dict:
     api_path = api_dir / name
 
     if ELEVENLABS_API_KEY:
-        _synth_elevenlabs(script, api_path)
+        try:
+            _synth_elevenlabs(script, api_path)
+        except Exception as exc:
+            logger.warning(
+                "ElevenLabs TTS failed (%s: %s), falling back to edge-tts",
+                exc.__class__.__name__, exc,
+            )
+            _synth_edge_tts(script, lang, api_path)
     else:
         _synth_edge_tts(script, lang, api_path)
 
@@ -295,18 +322,27 @@ _LLM_OK_RESPONSE = json.dumps(
 
 
 def _record(result: dict) -> None:
-    results = getattr(_dispatch_registry, "results", None)
+    """Append a dispatch result.
+
+    Called from inside tool functions which run in LangGraph worker
+    threads. The ContextVar holds a mutable list so appends here are
+    visible from the calling thread when pop_dispatch_info() reads it.
+    """
+    results = _dispatch_results_var.get()
     if results is None:
         results = []
-        _dispatch_registry.results = results
+        _dispatch_results_var.set(results)
     results.append(result)
 
 
 def pop_dispatch_info() -> list[dict] | None:
-    """Return and clear dispatch results recorded in this worker thread."""
-    results = getattr(_dispatch_registry, "results", None)
+    """Return and clear dispatch results recorded during this request.
+
+    Called on the calling thread after agent.invoke() completes.
+    """
+    results = _dispatch_results_var.get()
     if results is not None:
-        delattr(_dispatch_registry, "results")
+        _dispatch_results_var.set(None)
     return results
 
 

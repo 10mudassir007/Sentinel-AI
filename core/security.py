@@ -15,8 +15,11 @@ logger = logging.getLogger(__name__)
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
-from fastapi import Header, HTTPException
+from fastapi import Depends, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+_bearer_scheme = HTTPBearer(auto_error=False)
 
 from core.config import AUTHORIZED_CNICS, TOKEN_TTL_HOURS, TRUSTED_PROXY
 
@@ -155,11 +158,11 @@ def _valid_token(token: str) -> bool:
         return True
 
 
-def require_auth(authorization: str | None = Header(default=None)) -> None:
+def require_auth(credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme)) -> None:
     """Require a valid Bearer token issued by POST /login."""
-    if not authorization or not authorization.lower().startswith("bearer "):
+    if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Missing or invalid token")
-    if not _valid_token(authorization.split(" ", 1)[1].strip()):
+    if not _valid_token(credentials.credentials):
         raise HTTPException(status_code=401, detail="Missing or invalid token")
 
 

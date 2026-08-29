@@ -215,3 +215,5 @@ sentinel-ai
 addons.txt
 tools/
 tools/**
+generated_audio/
+generated_audio/**

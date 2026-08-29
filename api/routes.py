@@ -181,6 +181,7 @@ async def analyze_video_endpoint(
     latitude: str = Form(""),
     longitude: str = Form(""),
     camera_id: str = Form(""),
+    single_upload: str = Form(""),
     _: None = Depends(require_auth),
 ):
     if not _has_supported_extension(file.filename):
@@ -232,6 +233,7 @@ async def analyze_video_endpoint(
             video_analysis, agent_answer, dispatch = await run_in_threadpool(
                 analyze_video, tmp_path, languages=languages, location=location,
                 camera_id=camera_id or None,
+                single_upload=single_upload.lower() in ("1", "true", "yes"),
             )
         finally:
             lock.release()
@@ -247,7 +249,22 @@ async def analyze_video_endpoint(
             except OSError:
                 logger.warning("Could not remove temporary file %s", tmp_path)
 
-    return {
+    # Extract the generated audio filename from the first dispatch result
+    # that produced one, so the caller can fetch it via GET /audio/{filename}
+    # without parsing the dispatch list themselves.
+    audio_file = None
+    if dispatch:
+        for entry in dispatch:
+            audio = entry.get("audio")
+            if audio and audio.get("name"):
+                audio_file = audio["name"]
+                break
+
+    # Conditionally include dispatch/audio only when dispatch fired.
+    # When no incident was detected these fields are omitted entirely
+    # (not even null) so the client can distinguish "no incident" from
+    # "incident but dispatch failed".
+    result = {
         "filename": file.filename,
         "camera_id": video_analysis.get("camera_id"),
         "location": location,
@@ -255,8 +272,11 @@ async def analyze_video_endpoint(
         "incidents_detected": len(video_analysis.get("incidents", [])),
         "video_analysis": video_analysis,
         "agent_response": agent_answer,
-        "dispatch": dispatch,
     }
+    if dispatch is not None:
+        result["dispatch"] = dispatch
+        result["audio_file"] = audio_file
+    return result
 
 
 @router.get("/audio/{filename}")

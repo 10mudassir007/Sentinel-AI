@@ -52,7 +52,7 @@ def run() -> None:
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=int(os.getenv("PORT", "8754")),
+        port=int(os.getenv("PORT", "8000")),
     )
 
 

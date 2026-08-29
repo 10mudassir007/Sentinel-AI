@@ -115,7 +115,8 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
                                 show_frames: bool = False,
                                 max_frames_analyzed: int | None = None,
                                 languages: list[str] | None = None,
-                                camera_id: str | None = None) -> dict:
+                                camera_id: str | None = None,
+                                single_upload: bool = False) -> dict:
     if target_fps <= 0:
         raise ValueError("target_fps must be positive")
     if not 0.0 <= start_pct <= end_pct <= 1.0:
@@ -148,7 +149,14 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
     # Gate 3 - per-camera escalation state machine. The key defaults to the
     # video path so one-off uploads never share a lifecycle; clients that
     # send a camera_id get true cross-upload throttling for that camera.
+    #
+    # When single_upload=True, a fresh tracker key is always used so every
+    # upload starts from IDLE regardless of camera_id, and the alert fires
+    # immediately after the first vision LLM analysis (no multi-hit
+    # confirmation needed).
     tracker_key = camera_id or video_path
+    if single_upload:
+        tracker_key = f"__single__{video_path}"
     tracker = tracker_for(tracker_key)
     alert_triggered = False
 
@@ -258,6 +266,17 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
                 "objects": detections,
                 "llm_description": description
             })
+
+            # In single_upload mode the alert fires immediately on the first
+            # analysed frame — no need for multiple confirming hits.
+            if single_upload:
+                alert_triggered = True
+                logger.info(
+                    "Single upload mode: incident confirmed at %.2fs "
+                    "(camera %s) — dispatching now",
+                    timestamp, tracker_key,
+                )
+                break
 
             if max_frames_analyzed is not None and len(incidents) >= max_frames_analyzed:
                 logger.info("Reached analysis cap of %d frames", max_frames_analyzed)

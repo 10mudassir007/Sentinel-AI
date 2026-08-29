@@ -39,6 +39,7 @@ def analyze_video(
     languages: list[str] | None = None,
     location: dict | None = None,
     camera_id: str | None = None,
+    single_upload: bool = False,
 ) -> tuple[dict, str, list[dict] | None]:
     agent = get_incident_agent()
 
@@ -46,17 +47,18 @@ def analyze_video(
     # in the voice message) and to the agent (it mentions it in its answer).
     set_dispatch_context(location)
     try:
-        return _analyze(video_path, agent, max_frames_analyzed, languages, location, camera_id)
+        return _analyze(video_path, agent, max_frames_analyzed, languages, location, camera_id, single_upload)
     finally:
         set_dispatch_context(None)
 
 
-def _analyze(video_path, agent, max_frames_analyzed, languages, location, camera_id):
+def _analyze(video_path, agent, max_frames_analyzed, languages, location, camera_id, single_upload=False):
     video_analysis = process_video_for_incidents(
         video_path,
         max_frames_analyzed=max_frames_analyzed,
         languages=languages,
         camera_id=camera_id,
+        single_upload=single_upload,
     )
 
     # The agent - and with it the 1122 dispatch tools - runs only when the
@@ -80,11 +82,14 @@ def _analyze(video_path, agent, max_frames_analyzed, languages, location, camera
     )
 
     tracker = tracker_for(video_analysis["camera_id"])
+    # In single_upload mode the tracker key is ephemeral, so mark_alert_done
+    # may see CONFIRMING (not ALERT) — that is fine, the lifecycle ends here.
     try:
         response = agent.invoke({"messages": [message]})
 
-        # Tool calls ran synchronously in this thread; collect their dispatch
-        # results (SIP call outcomes + generated audio) for the API response.
+        # Collect dispatch results (SIP call outcomes + generated audio).
+        # Tools run in LangGraph worker threads; the results are stored via
+        # contextvars.ContextVar which is propagated across threads.
         dispatch = pop_dispatch_info()
     finally:
         # ALERT -> COOLDOWN: one dispatch attempt per incident lifecycle,

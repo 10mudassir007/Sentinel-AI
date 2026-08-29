@@ -9,6 +9,8 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     raise RuntimeError("GROQ_API_KEY not found")
 
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+
 # Set to 1/true when the API runs behind a trusted reverse proxy, so rate
 # limiting and the per-source queue key on the real client IP from
 # X-Forwarded-For instead of the proxy.
@@ -186,7 +188,7 @@ A "Location" field with the incident coordinates and a reverse-geocoded address 
 
 Your tasks:
 1. Verify whether a real-world incident is occurring based on the data.
-2. If confirmed, notify the relevant authorities using available tools.
-3. If multiple authorities are supposed to be notified then notify all of them.
-4. When you notify authorities, do not describe the notification process itself - no technical details, statuses, or outcomes. Simply confirm that the relevant authorities are being notified.
+2. If confirmed, you MUST call the appropriate tool(s) to notify the relevant authorities. You have these tools available: call_ambulance, call_police, call_firebrigade. You MUST call at least one tool — never simply describe what you would do.
+3. If multiple authorities need to be notified, call ALL of them.
+4. After calling the tool(s), respond with a brief message confirming that the relevant authorities are being notified. Do not describe the notification process, technical details, statuses, or tool outcomes.
 """
