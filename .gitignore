@@ -221,3 +221,5 @@ tools/**
 generated_audio/
 generated_audio/**
 incidents.json
+
+.qoder
