@@ -1,8 +1,6 @@
-import React from "react";
 import {
   Smartphone,
   Camera,
-  Upload,
   Brain,
   Bell,
   BarChart3,
@@ -10,16 +8,11 @@ import {
   ArrowRight,
   Zap,
   Shield,
-  MapPin,
-  Clock,
   Eye,
-  Phone,
   Fingerprint,
   Video,
   Server,
   GitBranch,
-  Radio,
-  UserCheck,
   FileVideo,
   Network,
   Route,
@@ -263,7 +256,7 @@ const HowItWorks = () => {
     visible: {
       opacity: 1,
       x: 0,
-      transition: { duration: 0.6, ease: "easeOut" },
+      transition: { duration: 0.6, ease: "easeOut" as const },
     },
   };
 

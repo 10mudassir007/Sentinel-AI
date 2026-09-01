@@ -1,4 +1,3 @@
-import React from "react";
 import { 
   User, 
   Truck, 
@@ -6,7 +5,6 @@ import {
   Landmark, 
   FileCheck,
   Zap,
-  Shield,
   CheckCircle2,
   ArrowRight
 } from "lucide-react";

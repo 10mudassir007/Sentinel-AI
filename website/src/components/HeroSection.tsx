@@ -1,5 +1,6 @@
 import { ArrowRight, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Link } from "react-router-dom";
 import AnimatedGrid from "./AnimatedGrid";
 
 const HeroSection = () => {
@@ -29,9 +30,20 @@ const HeroSection = () => {
           </p>
           
           {/* CTAs */}
-          
-          {/* Stats */}
-          
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10 opacity-0 animate-fade-in-up stagger-3">
+            <Link to="/demo">
+              <Button size="lg" className="gap-2">
+                <Play className="w-4 h-4" />
+                Try Live Demo
+              </Button>
+            </Link>
+            <Link to="/use-cases">
+              <Button size="lg" variant="outline" className="gap-2">
+                <ArrowRight className="w-4 h-4" />
+                Explore Use Cases
+              </Button>
+            </Link>
+          </div>
         </div>
       </div>
       

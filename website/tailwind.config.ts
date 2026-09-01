@@ -99,5 +99,7 @@ export default {
       },
     },
   },
+  // tailwindcss-animate ships as CJS without types — require() is intentional here
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   plugins: [require("tailwindcss-animate")],
 } satisfies Config;

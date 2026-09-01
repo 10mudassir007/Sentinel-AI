@@ -4,11 +4,28 @@
 
 /* Emergency AI Detection System - Dark Professional Theme */
 
-/* Reserve the scrollbar gutter at all times so opening the header dropdown
-   (or any browser repaint quirk) can never hide the scrollbar and shift the
-   fixed header / layout horizontally. */
+/* Keep the page scrollbar permanently visible and dark:
+   - overflow-y: scroll forces the scrollbar track to always be present
+   - a matching dark background prevents any white flash in the gutter */
 html {
-  scrollbar-gutter: stable;
+  overflow-y: scroll;
+  background: hsl(var(--background));
+}
+
+/* Radix dropdown menus wrap their content in react-remove-scroll, which
+   marks body[data-scroll-locked] and injects overflow: hidden plus an 8px
+   padding/margin compensation, all !important. That compensation assumes
+   body is the page scroller — here the page scrolls on html (overflow-y:
+   scroll above), never on body, so the hidden overflow and 8px padding
+   shrink the content area and shift the centered layout. Restore body's
+   default box while locked: clip reserves no scrollbar gutter, zero
+   compensation, static position. This selector out-specifies the
+   injected body[data-scroll-locked] rules so it always wins. */
+html body[data-scroll-locked] {
+  overflow: clip !important;
+  padding-right: 0 !important;
+  margin-right: 0 !important;
+  position: static !important;
 }
 
 @layer base {
@@ -217,12 +234,13 @@ html {
 
 /* ===== Custom Scrollbars ===== */
 
-/* Webkit (Chrome, Edge, Safari) */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: hsl(199 89% 48% / 0.35) hsl(222 47% 10%);
-}
-
+/* Chrome, Edge, Safari — deterministic 8px custom scrollbars.
+   scrollbar-width / scrollbar-color are deliberately NOT set globally:
+   Chrome 121+ honors them and switches to native scrollbars, which
+   Chromium hides or resizes when portaled popups open (e.g. the header
+   "More" dropdown), shifting the layout. Webkit custom scrollbars are
+   always classic, fixed at 8px, and can never appear, disappear, or
+   change width. */
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -255,4 +273,29 @@ html {
 
 *::-webkit-scrollbar-corner {
   background: hsl(222 47% 8%);
+}
+
+/* Firefox only — native thin scrollbars. Firefox has no ::-webkit-scrollbar
+   support and is not affected by the Chromium popup scrollbar quirk.
+   Guarded with @supports not selector(...): Chrome aliases -moz-appearance,
+   so a -moz-appearance guard would leak scrollbar-width back into Chrome. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(199 89% 48% / 0.35) hsl(222 47% 10%);
+  }
+}
+
+/* Respect users who disable motion — the radar sweep, pulse rings and other
+   infinite animations (Tailwind animate-pulse included) should all collapse to
+   a single static frame for them. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

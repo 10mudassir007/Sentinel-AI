@@ -1,6 +1,6 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { Shield, Lock, Eye, Trash2, UserCheck, Globe, AlertTriangle, Video, FileText } from "lucide-react";
+import { Shield, Lock, Eye, Trash2, UserCheck, Globe, AlertTriangle, Video } from "lucide-react";
 
 const PrivacyPolicy = () => {
   return (
@@ -249,32 +249,6 @@ const PrivacyPolicy = () => {
                       <li><span className="text-foreground font-medium">Opt-Out:</span> Choose not to use the mobile app's passive monitoring feature and only trigger manual uploads.</li>
                       <li><span className="text-foreground font-medium">Inquiry:</span> Contact the project team with questions about data handling at any time.</li>
                     </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Section 8 - Contact */}
-            <div className="gradient-card rounded-xl border border-border p-8 bg-background/50 backdrop-blur-sm">
-              <div className="flex items-start gap-4 mb-4">
-                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <FileText className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold text-foreground mb-2">8. Contact &amp; Project Information</h2>
-                  <div className="text-sm text-muted-foreground leading-relaxed space-y-3">
-                    <p>
-                      Sentinel AI is an open-source prototype project. If you have questions, concerns, or requests regarding this Privacy &amp; Data page or the project's data practices, please reach out:
-                    </p>
-                    <div className="mt-4 p-4 rounded-lg bg-secondary/50 border border-border">
-                      <p className="text-foreground font-medium">Sentinel AI Project Team</p>
-                      <p className="text-muted-foreground text-xs mt-1">
-                        Email: <a href="mailto:muddassir032@gmail.com" className="text-primary hover:underline">muddassir032@gmail.com</a>
-                      </p>
-                      <p className="text-muted-foreground text-xs mt-1">
-                        GitHub: <a href="https://github.com/10mudassir007/Sentinel-AI" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">github.com/10mudassir007/Sentinel-AI</a>
-                      </p>
-                    </div>
                   </div>
                 </div>
               </div>

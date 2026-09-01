@@ -1,17 +1,9 @@
-import React from "react";
 import {
   AlertTriangle,
   Clock,
   Bell,
   CheckCircle2,
-  Users,
   MapPin,
-  Car,
-  Flame,
-  PersonStanding,
-  Swords,
-  HeartPulse,
-  Shield,
   Zap,
   ArrowUpRight,
   ArrowDownRight,
@@ -145,11 +137,11 @@ const Dashboard = () => {
         {/* Demo Data Banner */}
         <div className="container mx-auto px-4 mb-8">
           <div className="max-w-7xl mx-auto p-4 rounded-xl border border-warning/40 bg-warning/5">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
               <AlertTriangle className="w-5 h-5 text-warning flex-shrink-0" />
               <div>
                 <span className="font-bold text-foreground text-sm">Demo Data - Not Live</span>
-                <span className="text-xs text-muted-foreground ml-2">
+                <span className="text-xs text-muted-foreground block sm:inline sm:ml-2">
                   All numbers, names, and timestamps on this page are realistic-looking sample/placeholder data.
                   They do not reflect real incidents, actual authority integrations, or live system metrics.
                 </span>
@@ -237,13 +229,16 @@ const Dashboard = () => {
                     outerRadius={100}
                     paddingAngle={3}
                     dataKey="value"
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    labelLine={false}
                   >
                     {incidentTypeBreakdown.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
+                  <Legend
+                    iconType="circle"
+                    verticalAlign="bottom"
+                    wrapperStyle={{ fontSize: 12, color: "hsl(215 20% 70%)" }}
+                  />
                   <Tooltip
                     contentStyle={{
                       background: "hsl(222 47% 8%)",
@@ -251,6 +246,8 @@ const Dashboard = () => {
                       borderRadius: "8px",
                       fontSize: "12px",
                     }}
+                    itemStyle={{ color: "hsl(215 20% 85%)" }}
+                    labelStyle={{ color: "hsl(215 20% 85%)" }}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -276,6 +273,8 @@ const Dashboard = () => {
                       borderRadius: "8px",
                       fontSize: "12px",
                     }}
+                    itemStyle={{ color: "hsl(215 20% 85%)" }}
+                    labelStyle={{ color: "hsl(215 20% 85%)" }}
                   />
                   <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                     {authorityBreakdown.map((entry, index) => (
@@ -315,7 +314,7 @@ const Dashboard = () => {
               <LineChart data={responseTimeData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(222 30% 18%)" />
                 <XAxis dataKey="day" tick={{ fill: "hsl(215 20% 55%)", fontSize: 12 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: "hsl(215 20% 55%)", fontSize: 12 }} axisLine={false} tickLine={false} unit="s" />
+                <YAxis tick={{ fill: "hsl(215 20% 55%)", fontSize: 12 }} axisLine={false} tickLine={false} />
                 <Tooltip
                   contentStyle={{
                     background: "hsl(222 47% 8%)",
@@ -323,10 +322,17 @@ const Dashboard = () => {
                     borderRadius: "8px",
                     fontSize: "12px",
                   }}
+                  itemStyle={{ color: "hsl(215 20% 85%)" }}
+                  labelStyle={{ color: "hsl(215 20% 85%)" }}
                 />
                 <Line type="monotone" dataKey="detection" stroke="#60a5fa" strokeWidth={2} dot={{ fill: "#60a5fa", r: 4 }} name="Detection (s)" />
-                <Line type="monotone" dataKey="notification" stroke="#60a5fa" strokeWidth={2} strokeDasharray="4 4" dot={{ fill: "#60a5fa", r: 3 }} name="Notification (s)" />
+                <Line type="monotone" dataKey="notification" stroke="#fbbf24" strokeWidth={2} strokeDasharray="4 4" dot={{ fill: "#fbbf24", r: 3 }} name="Notification (s)" />
                 <Line type="monotone" dataKey="response" stroke="#34d399" strokeWidth={2} dot={{ fill: "#34d399", r: 4 }} name="Response (min)" />
+                <Legend
+                  iconType="circle"
+                  verticalAlign="bottom"
+                  wrapperStyle={{ fontSize: 12, color: "hsl(215 20% 70%)" }}
+                />
               </LineChart>
             </ResponsiveContainer>
             <p className="text-[10px] text-muted-foreground/60 mt-3 text-center">
@@ -439,8 +445,8 @@ const Dashboard = () => {
                   key={loc.id}
                   className="absolute flex items-center gap-1.5 group"
                   style={{
-                    left: `${30 + loc.id * 15}%`,
-                    top: `${20 + loc.id * 12}%`,
+                    left: `${15 + (loc.id - 1) * 14}%`,
+                    top: `${18 + (loc.id - 1) * 13}%`,
                   }}
                 >
                   <div className="relative">

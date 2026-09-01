@@ -1,4 +1,3 @@
-import React from "react";
 import {
   Car,
   Flame,
@@ -11,7 +10,6 @@ import {
   Zap,
   Shield,
   AlertTriangle,
-  CheckCircle2,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import Header from "@/components/Header";
