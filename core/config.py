@@ -173,6 +173,10 @@ ASTERISK_SOUNDS_DIR = os.getenv(
 # Directory where generated audio is kept for the GET /audio/{file} endpoint.
 AUDIO_OUTPUT_DIR = os.getenv("AUDIO_OUTPUT_DIR", "generated_audio")
 
+# JSON file where analyzed incidents are stored for the /incidents endpoints
+# (see services/incident_store.py); created on first write.
+INCIDENTS_FILE = os.getenv("INCIDENTS_FILE", "incidents.json")
+
 # Reverse-geocoding endpoint for turning client coordinates into a readable
 # location (Nominatim is free and needs no key; swap for any compatible API).
 REVERSE_GEOCODE_URL = os.getenv(

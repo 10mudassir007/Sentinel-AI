@@ -139,6 +139,9 @@ services/video_service.analyze_video(location, camera_id)
 │    • tool failures stay internal: neutral result to the LLM, real  │
 │      outcome (error + audio URL) recorded for the API response     │
 │  api/routes.py ── GET /audio/{file} serves generated voice audio   │
+│  api/routes.py ── /incidents/latest + /incidents/{id}/pass        │
+│  services/incident_store.py ── incidents.json (status: new→…)   │
+│    status new → processed/notified via POST /incidents/{id}/pass │
 └───────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼

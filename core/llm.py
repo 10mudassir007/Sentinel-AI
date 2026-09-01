@@ -16,7 +16,7 @@ def _make_gemini():
 
 def _make_groq():
     return ChatGroq(
-        model="openai/gpt-oss-120b",
+        model="qwen/qwen3.8-27b",
         api_key=GROQ_API_KEY,
     )
 

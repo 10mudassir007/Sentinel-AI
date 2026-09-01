@@ -14,3 +14,7 @@ architecture diagram.txt
 *.mp4
 *.avi
 *.mov
+# Runtime data created by the API (incidents store + generated audio).
+incidents.json
+incidents.json.tmp
+generated_audio/

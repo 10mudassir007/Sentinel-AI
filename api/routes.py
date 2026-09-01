@@ -20,6 +20,7 @@ from core.config import (
 )
 from core.security import client_ip, create_session, require_auth
 from services.geocode import reverse_geocode
+from services.incident_store import add_incident, list_incidents, set_status
 from services.video_service import analyze_video
 
 logger = logging.getLogger(__name__)
@@ -276,7 +277,45 @@ async def analyze_video_endpoint(
     if dispatch is not None:
         result["dispatch"] = dispatch
         result["audio_file"] = audio_file
+
+    # Persist only the relevant fields for the /incidents endpoints.
+    # Status starts as "new" until an operator marks it via
+    # POST /incidents/{id}/pass. A store failure is logged but never
+    # fails the response: analysis and dispatch already happened.
+    if video_analysis.get("incidents"):
+        try:
+            first_incident = (video_analysis.get("incidents") or [None])[0]
+            llm_desc = (
+                (first_incident.get("llm_description") or [{}])[0].get("text")
+                if first_incident else None
+            )
+            add_incident({
+                "display_name": location.get("display_name") if location else None,
+                "llm_desc": llm_desc,
+                "agent_answer": agent_answer,
+                "audio_file": audio_file,
+            })
+        except Exception:
+            logger.exception("Could not store incident record")
     return result
+
+
+@router.get("/incidents/latest")
+async def incidents_latest(_: None = Depends(require_auth)) -> dict:
+    """Return incidents still waiting for attention (status 'new'), newest first."""
+    return {"incidents": list_incidents(status="new")}
+
+
+@router.post("/incidents/{incident_id}/pass")
+async def incidents_pass(
+    incident_id: str,
+    _: None = Depends(require_auth),
+) -> dict:
+    """Mark an incident as handled (status -> "false")."""
+    updated = set_status(incident_id, "false")
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return {"incident": updated}
 
 
 @router.get("/audio/{filename}")

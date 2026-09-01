@@ -43,9 +43,10 @@ def analyze_video(
 ) -> tuple[dict, str, list[dict] | None]:
     agent = get_incident_agent()
 
-    # Hand the reverse-geocoded location to the dispatch tools (they embed it
-    # in the voice message) and to the agent (it mentions it in its answer).
-    set_dispatch_context(location)
+    # Hand the reverse-geocoded location and the requested languages to the
+    # dispatch tools (location is embedded in the voice message, and the
+    # languages decide whether that message is spoken in Urdu or English).
+    set_dispatch_context(location, languages)
     try:
         return _analyze(video_path, agent, max_frames_analyzed, languages, location, camera_id, single_upload)
     finally:

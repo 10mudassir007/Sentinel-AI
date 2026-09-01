@@ -87,6 +87,9 @@ _dispatch_context_var: contextvars.ContextVar[dict | None] = contextvars.Context
 _dispatch_results_var: contextvars.ContextVar[list[dict] | None] = contextvars.ContextVar(
     "dispatch_results", default=None
 )
+_dispatch_languages_var: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar(
+    "dispatch_languages", default=None
+)
 
 
 # --- Request context ---------------------------------------------------
@@ -94,8 +97,8 @@ _dispatch_results_var: contextvars.ContextVar[list[dict] | None] = contextvars.C
 # services/video_service.py before the agent runs so tools can embed it in
 # the voice message without relying on the LLM to pass it through.
 
-def set_dispatch_context(location: dict | None) -> None:
-    """Stash the request location for tools running in this request.
+def set_dispatch_context(location: dict | None, languages: list[str] | None = None) -> None:
+    """Stash the request location and requested languages for tools in this request.
 
     Uses contextvars.ContextVar so the value is propagated by
     ContextThreadPoolExecutor.copy_context() when LangGraph runs
@@ -103,6 +106,11 @@ def set_dispatch_context(location: dict | None) -> None:
     """
     _dispatch_context_var.set(location)
     _dispatch_results_var.set([])
+    _dispatch_languages_var.set(languages)
+
+
+def _dispatch_languages() -> list[str] | None:
+    return _dispatch_languages_var.get()
 
 
 def _dispatch_context() -> dict | None:
@@ -169,16 +177,23 @@ def _synth_edge_tts(script: str, lang: str, out_path: Path) -> None:
         return b"".join(chunks)
 
     mp3 = asyncio.run(_stream())
-    result = subprocess.run(
-        [
-            "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-i", "pipe:0", "-f", "wav", "-ac", "1", "-ar", "16000",
-            "-y", str(out_path),
-        ],
-        input=mp3,
-        capture_output=True,
-        timeout=_AUDIO_TIMEOUT_S,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "error",
+                "-i", "pipe:0", "-f", "wav", "-ac", "1", "-ar", "16000",
+                "-y", str(out_path),
+            ],
+            input=mp3,
+            capture_output=True,
+            timeout=_AUDIO_TIMEOUT_S,
+        )
+    except FileNotFoundError as exc:
+        # Windows reports WinError 2 when the ffmpeg executable is missing.
+        raise RuntimeError(
+            "ffmpeg executable not found - install ffmpeg or set "
+            "ELEVENLABS_API_KEY to skip the ffmpeg conversion"
+        ) from exc
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg conversion failed: {result.stderr[:200]}")
 
@@ -365,13 +380,23 @@ def _dispatch(service: str, incident: str, urdu_incident: str = "") -> str:
         "location": location_label,
     }
 
-    script = _alert_script(service, incident, urdu_incident, location_label)
-    lang = "ur" if urdu_incident else "en"
+    # The spoken alert follows the languages the client requested for the
+    # analysis (default en,ur). Urdu is preferred only when it was requested
+    # and the model supplied an Urdu description; language=en stays English
+    # even if the model offered urdu_incident.
+    languages = _dispatch_languages() or ("en", "ur")
+    urdu = urdu_incident if "ur" in languages else ""
+    lang = "ur" if urdu else "en"
+    script = _alert_script(service, incident, urdu, location_label)
+    logger.info(
+        "Dispatch audio: lang=%s requested=%s urdu_provided=%s script=%r",
+        lang, list(languages), bool(urdu_incident), script[:120],
+    )
     try:
         result["audio"] = _synthesize_voice_message(script, lang)
     except Exception as exc:
         logger.warning("Voice message generation failed: %s", exc)
-        result["error"] = f"Audio synthesis failed: {exc.__class__.__name__}"
+        result["error"] = f"Audio synthesis failed: {str(exc)[:200]}"
         _record(result)
         return _LLM_OK_RESPONSE
 

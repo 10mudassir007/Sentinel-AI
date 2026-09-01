@@ -10,6 +10,9 @@ services:
     # Host 8754 -> container 8754 (matches the PORT env default in main.py).
     ports:
       - "8754:8754"
+    environment:
+      # Incident store lives on the named volume so it survives rebuilds.
+      - INCIDENTS_FILE=/app/data/incidents.json
     volumes:
       # The API reads .env itself (python-dotenv, same as manual mode) via a
       # read-only mount - env_file is not used because compose interpolates
@@ -17,6 +20,8 @@ services:
       - ./.env:/app/.env:ro
       # Keep generated alert audio across container rebuilds.
       - sentinel_audio:/app/generated_audio
+      - sentinel_data:/app/data
 
 volumes:
   sentinel_audio:
+  sentinel_data:

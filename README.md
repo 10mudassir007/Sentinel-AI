@@ -103,6 +103,7 @@ GROQ_API_KEY=your_groq_api_key
 | `ELEVENLABS_API_KEY` | Voice message synthesis for dispatch calls (edge-tts used when empty) | *(empty)* |
 | `ASTERISK_SOUNDS_DIR` | Directory the API writes `alert-*.wav` into for Asterisk to play | `/var/lib/asterisk/sounds/sentinel/` |
 | `AUDIO_OUTPUT_DIR` | Directory served by `GET /audio/{file}` | `generated_audio` |
+| `INCIDENTS_FILE` | JSON file storing analyzed incidents for the `/incidents` endpoints (created on first write) | `incidents.json` |
 | `REVERSE_GEOCODE_URL` | Reverse-geocoding endpoint that turns client coordinates into a readable location (Nominatim by default; free, no key) | `https://nominatim.openstreetmap.org/reverse` |
 
 ---
@@ -160,7 +161,7 @@ curl -X POST http://localhost:8754/analyze-video \
 
 Missing/invalid/expired tokens get `401`. Tokens live `TOKEN_TTL_HOURS` (default 24h) and are stored hashed (sha256) in memory.
 
-Response contains the frame descriptions in the requested language(s) inside `video_analysis.incidents[].llm_description`, plus a `location` object when coordinates were sent: the exact `latitude`/`longitude` you provided and the reverse-geocoded `display_name` / `label` (e.g. `"Gulberg III, Lahore"`) resolved via the external geocoder. The agent uses that location in its answer, and the tools embed it in the voice message ("This incident has occurred at …"). If geocoding fails, the response degrades to raw coordinates with a `geocode_error` field instead of failing the analysis.
+Response contains the frame descriptions in the requested language(s) inside `video_analysis.incidents[].llm_description`, plus a `location` object when coordinates were sent: the exact `latitude`/`longitude` you provided and the reverse-geocoded `display_name` / `label` (e.g. `"Gulberg III, Lahore"`) resolved via the external geocoder. The agent uses that location in its answer, and the tools embed it in the voice message ("This incident has occurred at …"). The spoken dispatch alert follows the requested language(s) too: Urdu when `ur` is among them (and an Urdu description is available), English otherwise. If geocoding fails, the response degrades to raw coordinates with a `geocode_error` field instead of failing the analysis.
 
 **3. Dispatch results** — when the agent decides to notify an authority, the response includes a `dispatch` array (one entry per tool call), e.g.:
 
@@ -178,6 +179,42 @@ Response contains the frame descriptions in the requested language(s) inside `vi
 If the SIP call could not be placed, `status` is `"failed"` with an `error` field, and the generated audio URL is still returned so the caller can act on the alert. `GET /audio/{file}` (bearer token required) downloads the voice message.
 
 Tool failures are **never shown to the LLM or the end user**: tools return a neutral confirmation to the agent (so its answer stays clean and never mentions failures), while the real outcome is recorded in the `dispatch` array above.
+
+**4. Incident log** — every `/analyze-video` response that detected incidents also appends a compact record to `INCIDENTS_FILE` (default `incidents.json`), holding only the relevant fields: the frame descriptions, location, agent answer, trimmed dispatch outcome, the generated `audio_file` name, plus an `id` and a `status` that starts as `"new"`.
+
+List the incidents still waiting for attention (newest first; the response includes each record's `audio_file`, fetchable via `GET /audio/{file}`):
+
+```bash
+curl http://localhost:8754/incidents/latest \
+  -H "Authorization: Bearer <access_token>"
+```
+
+```json
+{
+  "incidents": [
+    {
+      "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+      "status": "new",
+      "created_at": "2026-08-31T12:00:00+00:00",
+      "camera_id": "lobby-cam-01",
+      "audio_file": "alert-ab12cd34-1720000000.wav",
+      "incidents": [{"timestamp": 3.0, "objects": ["person"], "llm_description": "..."}],
+      "dispatch": [{"service": "police", "destination": "15", "status": "placed"}]
+    }
+  ]
+}
+```
+
+Mark an incident as handled — its status changes from `new` to whatever you choose (e.g. `processed` or `notified`), after which `/incidents/latest` no longer includes it:
+
+```bash
+curl -X POST http://localhost:8754/incidents/<id>/pass \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "notified"}'
+```
+
+Unknown ids get `404`; a missing or empty `status` gets `422`.
 
 ## ☎️ Emergency dispatch over the SIP trunk
 

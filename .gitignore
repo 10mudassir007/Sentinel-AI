@@ -206,6 +206,9 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+yolo11s.pt
+yolo11m.pt
+yolo26m.pt
 yolo26n.pt 
 
 node_modules/
@@ -217,3 +220,4 @@ tools/
 tools/**
 generated_audio/
 generated_audio/**
+incidents.json
