@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "Sentinel AI",
+    "slug": "sentinel-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0A0E1A"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.sentinelai.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Camera is used to record video footage for AI-based emergency detection.",
+        "NSPhotoLibraryUsageDescription": "Photo library access is used to upload demo videos for analysis.",
+        "NSMicrophoneUsageDescription": "Microphone is used during video recording."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0A0E1A"
+      },
+      "package": "com.sentinelai.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Camera is used to record video footage for AI-based emergency detection."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Photo library access is used to upload demo videos for analysis."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Your location is sent along with emergency video footage to help responders reach you faster."
+        }
+      ],
+      "expo-audio"
+    ]
+  }
+}

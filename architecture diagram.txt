@@ -1,12 +1,12 @@
 architecture diagram
 
-POST /analyze-video (MP4/AVI/MOV, max MAX_VIDEO_SECONDS, optional latitude/longitude/camera_id)
+POST /analyze-video (MP4/AVI/MOV, max MAX_VIDEO_SECONDS, optional latitude/longitude/camera_id/language/single_upload)
         │
         ▼
 api/routes.py ──► services/geocode.reverse_geocode()  (external API, e.g. Nominatim)
         │         coordinates → readable location (street, city)
         ▼
-services/video_service.analyze_video(location, camera_id)
+services/video_service.analyze_video(languages, location, camera_id, single_upload)
                         │
                         ├─► services/process_video.process_video_for_incidents()
                         │      │  OpenCV: motion scoring (absdiff → blur → threshold)
@@ -21,7 +21,8 @@ services/video_service.analyze_video(location, camera_id)
                         └─► core/agent.get_incident_agent()  (runs only on ALERT)
                                └─► core/tools: call_ambulance / call_police / call_firebrigade
                                       │  voice message = LLM description + resolved location
-                                      │  ("This incident has occurred at …")
+                                      │  ("This incident has occurred at …"); language-aware:
+                                      │  Urdu only when "ur" is among the requested languages
                                       └─► SIP trunk (Asterisk AMI Originate) + TTS voice message
                                            failures never surface to the LLM: tools return a
                                            neutral confirmation; real outcome → API dispatch[]
@@ -53,39 +54,45 @@ services/video_service.analyze_video(location, camera_id)
 
 
 ┌─────────────────────────── CLIENT LAYER ───────────────────────────┐
-│  website/ (React + Vite + shadcn)  ──►  APIDemo.tsx                │
-│     POST http://localhost:8000/analyze-video  (multipart upload)   │
-│     └─ mock fallback response if API offline                       │
+│  website/ (React + Vite + shadcn)  ──►  DemoPage.tsx               │
+│     POST http://localhost:8754/analyze-video (multipart upload,    │
+│     VITE_API_URL; CNIC login via VITE_DEMO_CNIC; GET /audio)       │
+│     └─ sample-response fallback if API offline                     │
 │  Other consumers: curl / Postman / future mobile app (addons.txt)  │
 └────────────────────────────────┬───────────────────────────────────┘
                                  │ multipart/form-data
                                  ▼
 ┌─────────────────────────── API LAYER ─────────────────────────────────┐
-│  main.py ── FastAPI app ("Sentinel AI API")                           │
-│    • CORS middleware (env-configured CORS_ORIGINS)                    │
-│    • per-IP rate limiter (RATE_LIMIT_PER_MINUTE)                      │
-│    • /health endpoint                                                 │
+│  main.py ── FastAPI app ("Sentinel AI API")                         │
+│    • `python main.py` serves :8754 (PORT env, default 8754)        │
+│    • CORS middleware (env-configured CORS_ORIGINS)                  │
+│    • per-IP rate limiter (RATE_LIMIT_PER_MINUTE)                    │
+│    • /health endpoint                                               │
 │                                                                       │
 │  api/routes.py ── POST /login, POST /analyze-video                    │
 │    • POST /login: validates CNIC format (13 digits), then verifies it │
-│      against AUTHORIZED_CNICS Argon2id hashes (tools/hash_cnic.py),   │
-│      mints bearer token (TOKEN_TTL_HOURS lifetime, hashed in memory,  │
-│      capped at 10k)                                                   │
+│      against AUTHORIZED_CNICS Argon2id hashes (core.security          │
+│      hash_cnic()), mints bearer token (TOKEN_TTL_HOURS lifetime,      │
+│      hashed in memory, capped at 10k)                                 │
 │    • POST /analyze-video: requires valid Bearer token (else 401)      │
 │    • validates extension + magic bytes, enforces size limit           │
 │    • probes duration via OpenCV; rejects clips longer than            │
 │      MAX_VIDEO_SECONDS (422) before any analysis work                 │
+│    • form params: language (en/ur list) drives descriptions AND       │
+│      the spoken alert; single_upload = fresh tracker, alert fires     │
+│      on the first gated frame (one-off demos)                         │
 │    • per-source queue: same camera_id (or client IP when absent)      │
 │      serialized - next clip starts only after the previous one        │
-│      finished and responded                                          │
+│      finished and responded                                           │
 │    • streams upload to temp file (cleanup on all paths),              │
 │      analysis offloaded to a thread pool                              │
-│    • returns: filename, incident count, video_analysis,               │  
-│      agent_response (extracted final answer)                          │
+│    • returns: filename, camera_id, location, escalation,               │  
+│      agent_response, dispatch[] + audio_file                          │
 └────────────────────────────┬──────────────────────────────────────────┘
                              ▼
 ┌─────────────────────── SERVICE / ORCHESTRATION ───────────────────┐
-│  services/video_service.analyze_video(path, location)                │
+│  services/video_service.analyze_video(path, languages, location,     │
+│    camera_id, single_upload)                                         │
 │    • builds incident agent (core/agent)                             │
 │    • runs video pipeline (services/process_video)                   │
 │    • sends SYSTEM_PROMPT + location + video analysis to agent       │
@@ -115,12 +122,12 @@ services/video_service.analyze_video(location, camera_id)
                 ▼                                ▼
 ┌─────────────────────────── CORE (shared) ─────────────────────────┐
 │  core/config.py                                                   │
-│    • dotenv → GROQ_API_KEY (raises RuntimeError if missing)       │
-│    • SYSTEM_PROMPT (verify incident → notify authorities)         │
+│    • dotenv → GOOGLE_API_KEY (Gemini primary), GROQ_API_KEY       │
+│      fallback; SYSTEM_PROMPT (verify incident → force tool call)  │
 │                                                                   │
 │  core/llm.py                                                      │
-│    • get_llm()        → ChatGroq "qwen/qwen3.8-27b"               │
-│    • get_vision_llm() → ChatGroq "qwen/qwen3.6-27b"               │
+│    • get_llm()/get_vision_llm() → Gemini 3.5 Flash Lite           │
+│      (langchain_google_genai), Groq qwen3.8-27b fallback          │
 │                                                                   │
 │  core/agent.py ── get_incident_agent()                            │
 │    • langchain create_agent(model, tools, system_prompt)          │
@@ -133,22 +140,28 @@ services/video_service.analyze_video(location, camera_id)
 │  core/tools.py ── real emergency dispatch via SIP trunking      │
 │    • call_ambulance(1122) / call_police(15) / call_firebrigade(16) │
 │    • voice message from LLM description + resolved location:       │
-│      ElevenLabs → edge-tts ("This incident has occurred at …")     │
+│      ElevenLabs → edge-tts ("This incident has occurred at …");    │
+│      language follows request: Urdu only when "ur" is requested    │
 │    • call placed over SIP trunk: AMI Originate PJSIP/<num>@trunk,  │
 │      dialplan plays ${ALERT_FILE} (shared sounds dir)              │
 │    • tool failures stay internal: neutral result to the LLM, real  │
 │      outcome (error + audio URL) recorded for the API response     │
 │  api/routes.py ── GET /audio/{file} serves generated voice audio   │
 │  api/routes.py ── /incidents/latest + /incidents/{id}/pass        │
-│  services/incident_store.py ── incidents.json (status: new→…)   │
-│    status new → processed/notified via POST /incidents/{id}/pass │
+│  services/incident_store.py ── incidents.json; records hold only   │
+│    {id, created_at, status, display_name, llm_desc, agent_answer,  │
+│    audio_file}; latest = status "new" only, newest first;          │
+│    POST /incidents/{id}/pass (no body) → status "false"            │
 └───────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────── ENV / DEPLOYMENT ───────────────────────┐
-│  .env  ── GROQ_API_KEY (required at import time)                   │
+│  .env  ── GOOGLE_API_KEY (Gemini), GROQ_API_KEY (fallback),        │
+│           AUTHORIZED_CNICS (Argon2id hashes)                       │
 │  Limits ── MAX_UPLOAD_MB, MAX_VIDEO_SECONDS (15s default)          │
-│  Groq API ── chat completions (LLM + vision)                       │
+│  Gemini / Groq API ── chat completions (LLM + vision)              │
+│  INCIDENTS_FILE / AUDIO_OUTPUT_DIR ── incidents.json + generated   │
+│               alert WAVs (pruned after 24h / 200 files)            │
 │  YOLO model ── stock COCO weights (yolo26n.pt); gating classes:   │
 │               person, vehicles, knife - no custom training        │
 │  Escalation env ── ESCALATION_WINDOW_S / _CONFIRMING_HITS /       │

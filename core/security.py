@@ -21,7 +21,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
-from core.config import AUTHORIZED_CNICS, TOKEN_TTL_HOURS, TRUSTED_PROXY
+from core.config import AUTHORIZED_CNICS, NORMAL_USER_CNIC, TOKEN_TTL_HOURS, TRUSTED_PROXY
 
 # Max unique client IPs tracked before pruning idle entries.
 _MAX_TRACKED_IPS = 10_000
@@ -89,16 +89,37 @@ def _load_authorized_hashes() -> tuple[str, ...]:
 # Argon2id hashes of CNICs permitted to log in (never plaintext CNICs).
 _AUTHORIZED_HASHES = _load_authorized_hashes()
 
+# Optional Argon2id hash of the normal-user CNIC; empty disables the "user" role.
+_NORMAL_USER_HASH = ""
+if NORMAL_USER_CNIC:
+    if NORMAL_USER_CNIC.startswith("$argon2"):
+        _NORMAL_USER_HASH = NORMAL_USER_CNIC
+    else:
+        logging.warning(
+            "Ignoring NORMAL_USER_CNIC that is not an Argon2 hash: %.40r", NORMAL_USER_CNIC
+        )
 
-def _cnic_authorized(cnic: str) -> bool:
-    """True if the CNIC matches any stored Argon2id hash."""
+
+def _hash_matches(stored: str, cnic: str) -> bool:
+    """True if the Argon2 hash verifies for this (normalized) CNIC."""
+    try:
+        return _hasher.verify(stored, cnic)
+    except (VerifyMismatchError, InvalidHashError, VerificationError):
+        return False
+
+
+def _cnic_role(cnic: str) -> str | None:
+    """Role of a CNIC: "authoritative" for AUTHORIZED_CNICS entries, "user"
+    for NORMAL_USER_CNIC, or None if not permitted to log in.
+
+    AUTHORIZED_CNICS wins when the same CNIC is listed in both.
+    """
     for stored in _AUTHORIZED_HASHES:
-        try:
-            if _hasher.verify(stored, cnic):
-                return True
-        except (VerifyMismatchError, InvalidHashError, VerificationError):
-            continue
-    return False
+        if _hash_matches(stored, cnic):
+            return "authoritative"
+    if _NORMAL_USER_HASH and _hash_matches(_NORMAL_USER_HASH, cnic):
+        return "user"
+    return None
 
 
 # --- Session tokens ---------------------------------------------------
@@ -121,7 +142,8 @@ def create_session(raw_cnic: str) -> dict:
             status_code=422,
             detail="Invalid CNIC, expected format 12345-1234567-1 (13 digits)",
         )
-    if not _cnic_authorized(cnic):
+    role = _cnic_role(cnic)
+    if role is None:
         raise HTTPException(status_code=401, detail="CNIC is not authorized")
 
     token = secrets.token_urlsafe(32)
@@ -142,6 +164,7 @@ def create_session(raw_cnic: str) -> dict:
         "token_type": "bearer",
         "expires_at": (datetime.now(timezone.utc) + ttl).isoformat(),
         "cnic": cnic,
+        "user_type": role,
     }
 
 

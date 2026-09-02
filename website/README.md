@@ -1,73 +1,53 @@
-# Welcome to your Lovable project
+# Sentinel AI — Website
 
-## Project info
+Marketing site and live demo for **Sentinel‑AI**, the automated video incident‑detection platform (the FastAPI backend lives in the repository root — see the root `README.md`).
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+Built with **Vite 5 + React 18 + TypeScript + Tailwind CSS 3 + shadcn/ui**, deployed on **Vercel**.
 
-## How can I edit this code?
+## Pages
 
-There are several ways of editing your application.
+| Route | Page | Purpose |
+|---|---|---|
+| `/` | Home | Landing page with hero + demo CTA |
+| `/how-it-works` | How It Works | Full flow: CNIC login → detection pipeline → authority dispatch |
+| `/use-cases` | Use Cases | Application scenarios |
+| `/demo` | Demo | **Upload a video to the live backend** and see the real pipeline output |
+| `/detection-capabilities` | Detection Capabilities | Incident taxonomy + model notes (base YOLO11m COCO, not custom‑trained) |
+| `/dashboard` | Dashboard | Sample incident analytics (demo data, recharts) |
+| `/tech-stack` | Tech Stack | Technologies used across the platform |
+| `/privacy-policy` | Privacy Policy | Data handling terms |
+| `*` | 404 | Not found |
 
-**Use Lovable**
+## Demo page (`/demo`)
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+Talks to the real Sentinel‑AI API (FastAPI, default `http://localhost:8754`):
 
-Changes made via Lovable will be committed automatically to this repo.
+- `POST /login` with the CNIC from `VITE_DEMO_CNIC` to obtain a bearer token
+- `POST /analyze-video` — multipart video upload (`language=en`, camera id, `single_upload`)
+- `GET /audio/{filename}` — plays the generated voice alert (bearer auth)
+- Expired token (401) → automatic re‑login and one retry
+- API unreachable → the page falls back to a realistic sample response
 
-**Use your preferred IDE**
+### Environment variables
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+Create a `.env` file in this folder (or set them in the Vercel project settings):
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+| Variable | Purpose | Default |
+|---|---|---|
+| `VITE_API_URL` | Backend base URL | `http://localhost:8754` |
+| `VITE_DEMO_CNIC` | CNIC used to log in to the demo — must match an `AUTHORIZED_CNICS` Argon2id hash in the backend `.env` | *(empty → demo shows the sample response)* |
 
-Follow these steps:
+## Development
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```bash
+npm install
+npm run dev      # http://localhost:5173
+npm run build    # production build
+npm run preview  # preview the production build
+npm run lint     # eslint
+npm test         # vitest
 ```
 
-**Edit a file directly in GitHub**
+## Deployment
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Deployed to **Vercel**; `vercel.json` rewrites all routes to `/` so client‑side routing works. Set `VITE_API_URL` and `VITE_DEMO_CNIC` in the Vercel project settings before going live.

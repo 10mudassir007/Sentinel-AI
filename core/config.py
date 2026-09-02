@@ -136,10 +136,15 @@ def _parse_cnic_list(raw: str) -> list[str]:
     return [entry.strip() for entry in raw.split(";") if entry.strip()]
 
 
-# Semicolon-separated Argon2id hashes of CNICs allowed to log in (see
-# tools/hash_cnic.py to generate one). Plaintext CNICs are rejected with a
-# warning. Empty means no CNIC is authorized.
+# Semicolon-separated Argon2id hashes of CNICs allowed to log in (generate one
+# with: python -c "from core.security import hash_cnic; print(hash_cnic('<cnic>'))").
+# Plaintext CNICs are rejected with a warning. Empty means no CNIC is authorized.
 AUTHORIZED_CNICS = _parse_cnic_list(os.getenv("AUTHORIZED_CNICS", ""))
+
+# Optional Argon2id hash of the "normal user" CNIC. CNICs in AUTHORIZED_CNICS
+# log in as user_type "authoritative"; the CNIC hashed here (if set) logs in
+# as user_type "user" (same hash-generation command as above).
+NORMAL_USER_CNIC = os.getenv("NORMAL_USER_CNIC", "").strip()
 
 
 # Browser origins allowed to call the API (comma-separated).

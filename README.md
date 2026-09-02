@@ -26,20 +26,24 @@ This project is ideal for applications like:
 
 Sentinel-AI/
 ├── api/
-├───── routes.py
+│   └── routes.py
 ├── core/
-├───── agent.py
-├───── config.py
-├───── llm.py
-├───── security.py
-├───── tools.py
-├───── yolo_helpers.py
+│   ├── agent.py
+│   ├── config.py
+│   ├── escalation.py
+│   ├── llm.py
+│   ├── security.py
+│   ├── tools.py
+│   └── yolo_helpers.py
 ├── services/
-├───── process_video.py
-├───── video_service.py
-├── test/ # Contains Test Videos
+│   ├── geocode.py
+│   ├── incident_store.py
+│   ├── process_video.py
+│   └── video_service.py
+├── website/ 
 ├── .dockerignore
 ├── .env.example
+├── architecture diagram.txt
 ├── docker-compose.yml
 ├── Dockerfile
 ├── main.py
@@ -77,10 +81,11 @@ Copy the example environment file:
 cp .env.example .env
 ```
 
-Edit `.env` and set your LLM keys:
+Edit `.env` and set your LLM keys (Gemini is the primary provider; Groq is used automatically when `GOOGLE_API_KEY` is empty):
 
 ```
-GROQ_API_KEY=your_groq_api_key
+GOOGLE_API_KEY=your_google_api_key   # primary: Gemini 3.5 Flash Lite (vision + agent)
+GROQ_API_KEY=your_groq_api_key       # fallback provider
 ```
 
 ### 🔒 Optional security settings
@@ -89,7 +94,8 @@ GROQ_API_KEY=your_groq_api_key
 |---|---|---|
 | `TOKEN_TTL_HOURS` | Lifetime of bearer tokens issued by `POST /login` (CNIC-based auth) | `24` |
 | `PORT` | Port served by `python main.py` and the Docker container | `8754` |
-| `AUTHORIZED_CNICS` | Semicolon-separated **Argon2id hashes** of CNICs allowed to log in (never plaintext); generate with `python tools/hash_cnic.py <cnic>`; empty = nobody can log in | *(empty)* |
+| `GOOGLE_API_KEY` | Primary LLM provider key — Gemini 3.5 Flash Lite powers both frame descriptions and the dispatch agent (`GROQ_API_KEY` is used when empty) | *(empty)* |
+| `AUTHORIZED_CNICS` | Semicolon-separated **Argon2id hashes** of CNICs allowed to log in (never plaintext); generate with `python -c "from core.security import hash_cnic; print(hash_cnic('<cnic>'))"`; empty = nobody can log in | *(empty)* |
 | `TRUSTED_PROXY` | Set to `1` when the API runs behind a trusted reverse proxy, so rate limiting keys on the real client IP | `0` |
 | `CORS_ORIGINS` | Comma-separated browser origins allowed to call the API (add your Vercel domain in production) | `http://localhost:8754` |
 | `MAX_UPLOAD_MB` | Maximum upload size | `200` |
@@ -143,7 +149,7 @@ Invalid CNIC formats are rejected with `422`; CNICs that do not match a stored A
 **Generating a CNIC hash** — CNICs must never be stored in plaintext. Run:
 
 ```bash
-python tools/hash_cnic.py 42101-2345678-9
+python -c "from core.security import hash_cnic; print(hash_cnic('42101-2345678-9'))"
 ```
 
 and paste the printed `$argon2id$...` value into `AUTHORIZED_CNICS` (semicolon-separate multiple hashes). The hash is one-way: login verifies by re-hashing the submitted CNIC, so the original CNIC can never be recovered from `.env`.
@@ -180,7 +186,7 @@ If the SIP call could not be placed, `status` is `"failed"` with an `error` fiel
 
 Tool failures are **never shown to the LLM or the end user**: tools return a neutral confirmation to the agent (so its answer stays clean and never mentions failures), while the real outcome is recorded in the `dispatch` array above.
 
-**4. Incident log** — every `/analyze-video` response that detected incidents also appends a compact record to `INCIDENTS_FILE` (default `incidents.json`), holding only the relevant fields: the frame descriptions, location, agent answer, trimmed dispatch outcome, the generated `audio_file` name, plus an `id` and a `status` that starts as `"new"`.
+**4. Incident log** — every `/analyze-video` response that detected incidents also appends a compact record to `INCIDENTS_FILE` (default `incidents.json`), holding only the relevant fields: the resolved `display_name`, the first description text (`llm_desc`), the `agent_answer`, the generated `audio_file` name, plus an `id`, `created_at` and a `status` that starts as `"new"`.
 
 List the incidents still waiting for attention (newest first; the response includes each record's `audio_file`, fetchable via `GET /audio/{file}`):
 
@@ -195,26 +201,24 @@ curl http://localhost:8754/incidents/latest \
     {
       "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
       "status": "new",
-      "created_at": "2026-08-31T12:00:00+00:00",
-      "camera_id": "lobby-cam-01",
-      "audio_file": "alert-ab12cd34-1720000000.wav",
-      "incidents": [{"timestamp": 3.0, "objects": ["person"], "llm_description": "..."}],
-      "dispatch": [{"service": "police", "destination": "15", "status": "placed"}]
+      "created_at": "2026-09-01T12:00:00+00:00",
+      "display_name": "Gulberg III, Lahore",
+      "llm_desc": "A car crash scene involving two white cars.",
+      "agent_answer": "The relevant authorities are being notified.",
+      "audio_file": "alert-ab12cd34-1720000000.wav"
     }
   ]
 }
 ```
 
-Mark an incident as handled — its status changes from `new` to whatever you choose (e.g. `processed` or `notified`), after which `/incidents/latest` no longer includes it:
+Mark an incident as handled — its status changes from `new` to `false`, after which `/incidents/latest` no longer includes it (no request body needed):
 
 ```bash
 curl -X POST http://localhost:8754/incidents/<id>/pass \
-  -H "Authorization: Bearer <access_token>" \
-  -H "Content-Type: application/json" \
-  -d '{"status": "notified"}'
+  -H "Authorization: Bearer <access_token>"
 ```
 
-Unknown ids get `404`; a missing or empty `status` gets `422`.
+Unknown ids get `404`.
 
 ## ☎️ Emergency dispatch over the SIP trunk
 
@@ -233,7 +237,7 @@ The voice message is generated from the LLM's incident description and the resol
 - **ElevenLabs** when `ELEVENLABS_API_KEY` is set (raw PCM request — no conversion needed);
 - otherwise **edge-tts** (fast, no key, native Urdu voice `ur-PK-UzmaNeural`), converted to WAV via ffmpeg (included in the Docker image).
 
-The API writes the WAV into both `ASTERISK_SOUNDS_DIR` (for Asterisk playback) and `AUDIO_OUTPUT_DIR` (for `GET /audio`). The spoken alert prefers the Urdu description when the analysis included one.
+The API writes the WAV into both `ASTERISK_SOUNDS_DIR` (for Asterisk playback) and `AUDIO_OUTPUT_DIR` (for `GET /audio`). The spoken alert follows the language(s) you request via the `language` form field: Urdu when `ur` is among them (and an Urdu description is available), English otherwise.
 
 > ⚠ Calls are placed automatically the moment the agent decides to. A human-in-loop approval gate is strongly recommended before live deployment.
 
