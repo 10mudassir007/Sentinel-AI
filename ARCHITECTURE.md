@@ -160,6 +160,30 @@ COOLDOWN                      (re-alerts throttled per camera)
 
 > ⚠️ **Demo-only uploads:** the website `/demo` page and the mobile app's **Upload Video** screen send a *pre-recorded file* to `POST /analyze-video` purely to demonstrate the detection pipeline. In a real deployment the same API is fed by **live video** — the mobile app's Record mode already behaves like this by uploading continuous 5-second chunks, and stationary cameras would stream (or push short clips with a stable `camera_id`) the same way.
 
+> 💡 **Demo settings disclaimer** — the mobile app's Settings screen exposes backend URL,
+> camera ID, polling interval, and other options so you can experiment during development.
+> In a production deployment these settings would be removed from the UI (fixed at build
+> time or provisioned remotely) or automated entirely.
+
+> 🔍 **Production logging** — in development the API uses Python's built-in `logging`
+> module with stdout output. For a production deployment, integrate **Pydantic Logfire**
+> (structured observability for the FastAPI pipeline, LLM calls, and YOLO gates) and
+> **LangSmith** (tracing and evaluation of LangChain agent runs and tool calls) to
+> monitor, debug, and audit the full detection-to-dispatch flow.
+
+> 📍 **Responder GPS navigation** — the current app sends optional GPS coordinates with
+> every upload, and the API reverse-geocodes them into a readable place used in the
+> analysis and voice alert. In a production deployment, a full in-app navigation feature
+> would be added so responders can see the exact incident location on a map and get
+> turn-by-turn directions directly in the app, using the reported coordinates as the
+> destination.
+
+> 🗄️ **Production CNIC store** — in development, authorized CNIC hashes are stored in `.env`
+> (`AUTHORIZED_CNICS` / `NORMAL_USER_CNIC`). In a production deployment these would be
+> replaced with a database-backed user store (e.g. PostgreSQL), with CNICs registered
+> through a secure admin interface and hashed with Argon2id on write — the lookup logic
+> stays the same.
+
 ## Request lifecycle (`POST /analyze-video`)
 
 1. Client calls `POST /login` with a CNIC and receives a bearer token (`user_type` tells the client which UI to show).

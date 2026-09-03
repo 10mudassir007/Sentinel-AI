@@ -13,14 +13,14 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Download YOLO weights at build time so the non-root runtime user can read them.
-RUN python -c "from ultralytics import YOLO; YOLO('yolo26n.pt')"
+# yolo11m.pt is copied from the project root by COPY . . below, so there is
+# no need to pre-download it. The model file already ships with the repo.
 
 COPY . .
 
 RUN useradd --create-home --shell /usr/sbin/nologin appuser \
-    && mkdir -p /app/generated_audio \
-    && chown -R appuser:appuser /app/generated_audio
+    && mkdir -p /app/generated_audio /app/data \
+    && chown -R appuser:appuser /app/generated_audio /app/data
 USER appuser
 
 EXPOSE 8754

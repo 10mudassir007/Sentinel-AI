@@ -154,6 +154,24 @@ npx expo start            # scan the QR code with Expo Go (Android) or the Camer
 
 Full guide → [app/README.md](app/README.md)
 
+> 💡 **Demo settings disclaimer** — the mobile app's Settings screen exposes backend URL,
+> camera ID, polling interval, and other options so you can experiment with different
+> configurations during development. In a production deployment these settings would be
+> removed from the UI (fixed at build time or provisioned remotely) or automated
+> entirely — the app configures itself rather than asking the user.
+
+> 🔍 **Production logging** — in development the API uses Python's built-in `logging` module
+> with stdout output. For a production deployment, integrate **Pydantic Logfire** (structured
+> observability for the FastAPI pipeline, LLM calls, and YOLO gates) and **LangSmith** (tracing
+> and evaluation of LangChain agent runs and tool calls) to monitor, debug, and audit the full
+> detection-to-dispatch flow.
+
+> 📍 **Responder GPS navigation** — the current app sends optional GPS coordinates with every
+> upload, and the API reverse-geocodes them into a readable place used in the analysis and
+> voice alert. In a production deployment, a full in-app navigation feature would be added so
+> responders can see the exact incident location on a map and get turn-by-turn directions
+> directly in the app, using the reported coordinates as the destination.
+
 ---
 
 ## ⚙️ Backend Configuration (`.env`)
@@ -213,6 +231,11 @@ python -c "from core.security import hash_cnic; print(hash_cnic('42101-2345678-9
 ```
 
 Paste the printed `$argon2id$…` value into `.env` (semicolon-separate multiple hashes). Login re-hashes the submitted CNIC and verifies it — the original CNIC can never be recovered from `.env`. CNICs in `AUTHORIZED_CNICS` return `user_type: "authoritative"`; the optional `NORMAL_USER_CNIC` hash returns `user_type: "user"`.
+
+> 💡 In development, CNIC hashes are stored in `.env` for simplicity. In a production
+> deployment, `AUTHORIZED_CNICS` would be replaced with a database-backed user store
+> (e.g. PostgreSQL) — CNICs are registered through a secure admin interface, hashed with
+> Argon2id on write, and looked up on login just like the env-based flow.
 
 ---
 
@@ -324,8 +347,6 @@ The voice message is generated from the LLM's incident description and the resol
 - otherwise **edge-tts** (fast, no key, native Urdu voice `ur-PK-UzmaNeural`), converted to WAV via ffmpeg (included in the Docker image).
 
 The API writes the WAV into both `ASTERISK_SOUNDS_DIR` (for Asterisk playback) and `AUDIO_OUTPUT_DIR` (for `GET /audio`). The spoken alert follows the requested `language`: Urdu when `ur` is among them (and an Urdu description is available), English otherwise.
-
-> ⚠️ Calls are placed automatically the moment the agent decides to. A human-in-the-loop approval gate is strongly recommended before live deployment.
 
 ---
 

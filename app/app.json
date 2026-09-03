@@ -25,10 +25,15 @@
         "backgroundColor": "#0A0E1A"
       },
       "package": "com.sentinelai.app",
+      "enableProguardInReleaseBuilds": true,
+      "enableSeparateBuildPerCPUArchitecture": true,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
-        "android.permission.READ_EXTERNAL_STORAGE"
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "plugins": [
@@ -51,6 +56,11 @@
         }
       ],
       "expo-audio"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8796d6ee-94c1-4ac1-bfa9-fa609735429b"
+      }
+    }
   }
 }
