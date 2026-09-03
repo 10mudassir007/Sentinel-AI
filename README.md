@@ -1,140 +1,244 @@
 # Sentinel-AI
 
-Sentinel‑AI is a scalable Python project for automated incident detection in video. It combines motion analysis, object detection, and large language model (LLM) summarization to identify meaningful events in surveillance footage and describe them in natural language.
+**Sentinel-AI** is an automated video incident-detection platform. It watches (live) video, finds moments worth escalating — motion → YOLO object detection → LLM analysis — and can **place real emergency calls** (ambulance / police / fire brigade) over a SIP trunk when a verified incident is found, all described in natural language (English and/or Urdu).
 
-This project is ideal for applications like:
-- Autonomous surveillance analytics
-- Smart monitoring systems
-- Video summarization pipelines
-- Safety and security automation
+The repository contains **three deployable parts** that talk to each other:
+
+| Part | Location | Stack | How to run |
+|---|---|---|---|
+| 🖥️ **Backend API** (this folder) | `main.py`, `api/`, `core/`, `services/` | Python 3.11 · FastAPI · OpenCV · YOLO · LangChain | Docker or `python main.py` |
+| 🌐 **Website** | `website/` | React 18 · Vite · TypeScript · Tailwind · shadcn/ui | `npm run dev` → `:5173` (Vercel for prod) |
+| 📱 **Mobile app** | `app/` | Expo (React Native) · TypeScript | Expo Go / `npx expo start` |
 
 ---
 
-## 🚀 Features
+## 🖼 Architecture
 
-- 🧍 **Motion‑aware processing:** Skips irrelevant frames using adaptive motion scoring.
-- 🎯 **Object detection:** Identifies scene objects at points of interest.
-- 🧠 **LLM annotation:** Uses LLMs to generate human‑readable descriptions of incidents.
-- 🧪 **Configurable evaluation range:** Process subranges of video using start/end percentages.
-- 📊 **Structured output:** Returns timestamps, object lists, and text descriptions.
+The **website** and the **mobile app** are two separate clients that both point at the **same backend API** (`POST /analyze-video` + `/login`, `/incidents/*`, `/audio/*`). The API runs the whole detection pipeline: video ingestion → motion gate → YOLO gate → per-camera escalation state machine → vision-LLM description → verification agent → optional emergency dispatch.
+
+- 📄 Full text diagram and component breakdown: [ARCHITECTURE.md](ARCHITECTURE.md)
+
+---
+
+## ⚡ Features
+
+- 🧍 **Motion-aware processing** — irrelevant/static frames are skipped with an adaptive motion score before any expensive model runs.
+- 🎯 **YOLO detection gate** — only frames containing an interest class (person, vehicles, knife) above a confidence threshold reach the LLM (stock COCO weights, no custom training).
+- 🧠 **Per-camera escalation state machine** — `IDLE → SUSPICIOUS → CONFIRMING → ALERT → COOLDOWN`; the vision LLM runs only once per lifecycle and repeated confirmations are required before anything is dispatched, so a single camera can never flood the dispatcher.
+- 🗣️ **LLM incident descriptions** — human-readable summaries of what happened, in English and/or Urdu (`language` field).
+- ☎️ **Emergency dispatch** — on a confirmed incident the agent calls `call_ambulance` (1122), `call_police` (15) or `call_firebrigade` (16) over **Asterisk AMI / SIP trunk** with a generated voice message.
+- 📍 **Location-aware** — optional GPS coordinates are reverse-geocoded into a readable place ("Gulberg III, Lahore") used in the analysis and the spoken alert.
+- 🔐 **CNIC authentication** — log in with a Pakistani CNIC; CNICs are stored only as **Argon2id hashes**. Two roles: `user` (record/report) and `authoritative` (admin incident feed).
+- 📋 **Incident log** — every detected incident is persisted and can be listed / marked handled via the API, the app's admin feed, or `curl`.
+- ⏱️ **Per-source queue** — clips from the same `camera_id` (or client IP) are processed serially.
+- 📊 **Structured output** — timestamps, object lists, descriptions, dispatch results.
 
 ---
 
 ## 📁 Repository Structure
 
 ```
-
 Sentinel-AI/
-├── api/
+├── api/                      # FastAPI routes (login, analyze-video, incidents, audio)
 │   └── routes.py
-├── core/
-│   ├── agent.py
-│   ├── config.py
-│   ├── escalation.py
-│   ├── llm.py
-│   ├── security.py
-│   ├── tools.py
-│   └── yolo_helpers.py
-├── services/
-│   ├── geocode.py
-│   ├── incident_store.py
-│   ├── process_video.py
-│   └── video_service.py
-├── website/ 
-├── .dockerignore
-├── .env.example
-├── architecture diagram.txt
-├── docker-compose.yml
-├── Dockerfile
-├── main.py
+├── app/                      # 📱 Mobile app — Expo / React Native (Expo Go)
+│   ├── src/
+│   │   ├── api/              #   axios client + endpoints (login, analyze, incidents, audio)
+│   │   ├── components/       #   screens (Login, RecordVideo, UploadVideo, AdminHome, …)
+│   │   ├── context/          #   auth + i18n (English/Urdu, RTL)
+│   │   ├── navigation/       #   role-based navigators (user vs authoritative)
+│   │   ├── store/            #   persisted settings (backend URL, camera id, polling, …)
+│   │   ├── theme/  types/  translations.ts
+│   │   └── App.tsx
+│   └── package.json
+├── core/                     # Shared intelligence
+│   ├── agent.py              #   LangChain verification agent (tools: 1122 / 15 / 16)
+│   ├── config.py             #   dotenv config + SYSTEM_PROMPT
+│   ├── escalation.py         #   per-camera escalation state machine
+│   ├── llm.py                #   Gemini 3.5 Flash Lite (primary) / Groq fallback
+│   ├── security.py           #   Argon2id CNICs, sessions, rate-limit & size middleware
+│   ├── tools.py              #   emergency-dispatch tools (Asterisk AMI + TTS)
+│   └── yolo_helpers.py       #   YOLO detection wrapper
+├── services/                 # Orchestration
+│   ├── geocode.py            #   reverse geocoding (Nominatim by default)
+│   ├── incident_store.py     #   incidents.json persistence
+│   ├── process_video.py      #   frame loop: motion → YOLO → escalation → vision LLM
+│   └── video_service.py      #   analyze_video(): pipeline + agent orchestration
+├── website/                  # 🌐 Website — React + Vite + shadcn/ui (Vercel)
+│   └── src/pages/            #   landing, how-it-works, demo, dashboard, tech-stack …
+├── generated_audio/          # Voice alerts served by GET /audio/{file}
+├── yolo11m.pt / yolo26n.pt   # Stock COCO YOLO weights (no custom training)
+├── ARCHITECTURE.md           # Architecture diagram (Mermaid + plain-text breakdown)
+├── .env.example              # Backend environment template
+├── DockerFile                # python:3.11-slim image
+├── docker-compose.yml        # docker compose up --build  (:8754)
+├── main.py                   # FastAPI app — the backend entry point
 ├── requirements.txt
 └── README.md
-
-````
-
----
-
-## 🛠️ Getting Started
-
-### 🧾 Requirements
-
-- Python 3.11+
-- OpenCV (`opencv-python`)
-- NumPy
-- Yolo
-- LangChain
-
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-````
+```
 
 ---
 
-## 🧠 Configure LLM
+## 🚀 Run it — API, Website or App
 
-Copy the example environment file:
+> ⚠️ **Demo uploads vs live video** — the website `/demo` page and the mobile app's **Upload Video** screen send a *pre-recorded clip* to `POST /analyze-video`. That exists **only to demonstrate** the detection pipeline. Sentinel-AI is designed for **live video**: the mobile app's **Record** mode already streams real footage in continuous 5-second chunks, and fixed cameras would feed the same pipeline from live streams. Treat the upload flows as a demo/test harness, not as the production ingestion path.
+
+### Option 1 — Backend API
+
+**Prerequisites:** Python 3.11+, Docker (recommended) or a local Python environment.
 
 ```bash
+# 1. Configure environment (keys, CNIC hashes, limits — see table below)
 cp .env.example .env
+#    edit .env: set GROQ_API_KEY (required) and GOOGLE_API_KEY (recommended),
+#    and put at least one Argon2id CNIC hash in AUTHORIZED_CNICS
+
+# 2. Run — Docker (recommended):
+docker compose up --build
+
+#    …or Python directly:
+pip install -r requirements.txt
+python main.py
 ```
 
-Edit `.env` and set your LLM keys (Gemini is the primary provider; Groq is used automatically when `GOOGLE_API_KEY` is empty):
+The API serves **http://localhost:8754** — `GET /health` returns `{"status": "ok"}`.
 
+Verify with a CNIC login and an analysis (substitute your own clip — must be MP4/AVI/MOV and ≤ `MAX_VIDEO_SECONDS`):
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8754/login \
+  -H "Content-Type: application/json" \
+  -d '{"cnic": "42101-2345678-9"}' | python -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+
+curl -X POST http://localhost:8754/analyze-video \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@path/to/clip.mp4" \
+  -F "language=en,ur" \
+  -F "latitude=31.5204" \
+  -F "longitude=74.3587"
 ```
-GOOGLE_API_KEY=your_google_api_key   # primary: Gemini 3.5 Flash Lite (vision + agent)
-GROQ_API_KEY=your_groq_api_key       # fallback provider
+
+> 💡 The demo CNIC above only works when its **Argon2id hash** is present in `AUTHORIZED_CNICS` (see [CNIC auth](#cnic-authentication-argon2id)).
+
+Full endpoint reference → [API section](#api) below.
+
+### Option 2 — Website
+
+```bash
+cd website
+npm install
+cp .env.example .env      # set VITE_API_URL (backend) + VITE_DEMO_CNIC
+npm run dev               # → http://localhost:5173
 ```
 
-### 🔒 Optional security settings
+- Browse the marketing pages, then open **`/demo`** to upload a clip and watch the real pipeline run against your local backend (auto-login, live response, voice alert playback). If the API is offline the demo falls back to a sample response.
+- `VITE_DEMO_CNIC` must be a CNIC authorized on the backend (dev default: `42101-2345678-9`).
+- The Vite dev origin (`http://localhost:5173`) is already in the backend's `CORS_ORIGINS`.
+- Production build is deployed to **Vercel** (SPA rewrites in `vercel.json`).
 
-| Variable | Purpose | Default |
-|---|---|---|
-| `TOKEN_TTL_HOURS` | Lifetime of bearer tokens issued by `POST /login` (CNIC-based auth) | `24` |
-| `PORT` | Port served by `python main.py` and the Docker container | `8754` |
-| `GOOGLE_API_KEY` | Primary LLM provider key — Gemini 3.5 Flash Lite powers both frame descriptions and the dispatch agent (`GROQ_API_KEY` is used when empty) | *(empty)* |
-| `AUTHORIZED_CNICS` | Semicolon-separated **Argon2id hashes** of CNICs allowed to log in (never plaintext); generate with `python -c "from core.security import hash_cnic; print(hash_cnic('<cnic>'))"`; empty = nobody can log in | *(empty)* |
-| `TRUSTED_PROXY` | Set to `1` when the API runs behind a trusted reverse proxy, so rate limiting keys on the real client IP | `0` |
-| `CORS_ORIGINS` | Comma-separated browser origins allowed to call the API (add your Vercel domain in production) | `http://localhost:8754` |
-| `MAX_UPLOAD_MB` | Maximum upload size | `200` |
-| `MAX_FRAMES_TO_ANALYZE` | Cap on vision-model calls per request (bounds LLM cost) | `30` |
-| `YOLO_MODEL_PATH` | Weights file for the stock YOLO model (base COCO; no custom training used) | `yolo26n.pt` |
-| `YOLO_CONF_THRESHOLD` | Minimum detection confidence for a class to pass the gate | `0.45` |
-| `YOLO_INTEREST_CLASSES` | Comma-separated base-COCO class names that justify escalating a frame to the LLM (person, vehicles, knife) | `person,bicycle,car,motorcycle,bus,truck,knife` |
-| `DESCRIPTION_LANGUAGES` | Server default language(s) for frame descriptions; each request can override it via the `language` form field | `en,ur` |
-| `RATE_LIMIT_PER_MINUTE` | Per-IP request limit (0 disables) | `30` |
-| `AMI_HOST` / `AMI_PORT` / `AMI_USERNAME` / `AMI_SECRET` | Asterisk Manager Interface credentials for placing emergency calls over the SIP trunk | `127.0.0.1:5038` / `sentinel_api` / *(empty)* |
-| `ELEVENLABS_API_KEY` | Voice message synthesis for dispatch calls (edge-tts used when empty) | *(empty)* |
-| `ASTERISK_SOUNDS_DIR` | Directory the API writes `alert-*.wav` into for Asterisk to play | `/var/lib/asterisk/sounds/sentinel/` |
-| `AUDIO_OUTPUT_DIR` | Directory served by `GET /audio/{file}` | `generated_audio` |
-| `INCIDENTS_FILE` | JSON file storing analyzed incidents for the `/incidents` endpoints (created on first write) | `incidents.json` |
-| `REVERSE_GEOCODE_URL` | Reverse-geocoding endpoint that turns client coordinates into a readable location (Nominatim by default; free, no key) | `https://nominatim.openstreetmap.org/reverse` |
+Full guide → [website/README.md](website/README.md)
+
+### Option 3 — Mobile app (Expo Go)
+
+```bash
+cd app
+npm install
+cp .env.example .env      # set EXPO_PUBLIC_API_URL to http://<your-LAN-IP>:8754
+npx expo start            # scan the QR code with Expo Go (Android) or the Camera app (iOS)
+```
+
+- Install **Expo Go** from the Play Store / App Store; your phone and the machine running the backend must be on the same network.
+- The default in-app Settings screen lets you point the app at any backend URL at runtime.
+- Log in with your CNIC: an `authoritative` CNIC opens the **admin incident feed** (live polling, alert popups, voice-alert playback, mark-handled), a `user` CNIC opens **Record / Upload**.
+- **Record** captures live footage in 5-second chunks and streams each chunk to the API (GPS + camera ID attached) — this is the app behaving like a live camera. **Upload Video** is demo-only.
+
+Full guide → [app/README.md](app/README.md)
 
 ---
 
-## 🔬 Detection gating (motion → YOLO → LLM)
+## ⚙️ Backend Configuration (`.env`)
+
+Copy `.env.example` to `.env` and edit. Values shown below match the current development `.env`; adjust for production.
+
+```bash
+# LLM providers — GROQ_API_KEY is required (the app refuses to start without it).
+# When GOOGLE_API_KEY is set, Gemini 3.5 Flash Lite is used as the primary model
+# with Groq as an automatic fallback; when it is empty, Groq is used directly.
+GROQ_API_KEY=your_groq_api_key
+GOOGLE_API_KEY=your_google_api_key
+
+# A CNIC permitted to log in as an "authoritative" (admin) user, as an
+# Argon2id hash — see "CNIC Authentication" below.
+AUTHORIZED_CNICS='$argon2id$…'
+```
+
+| Variable | Purpose | Dev default (current `.env`) |
+|---|---|---|
+| `GROQ_API_KEY` | **Required.** Groq provider key (used directly when no Google key, fallback otherwise) | `gsk_…` |
+| `GOOGLE_API_KEY` | Gemini provider key — makes Gemini 3.5 Flash Lite the primary model | `AIza…` |
+| `PORT` | Port served by `python main.py` / the Docker container | `8754` |
+| `TOKEN_TTL_HOURS` | Lifetime of bearer tokens issued by `POST /login` | `24` |
+| `AUTHORIZED_CNICS` | Semicolon-separated **Argon2id hashes** of CNICs that log in as `authoritative`; empty = nobody can log in | `$argon2id$…` (demo CNIC `42101-2345678-9`) |
+| `NORMAL_USER_CNIC` | Optional Argon2id hash of the "normal user" CNIC → logs in as `user` instead of `authoritative` | *(empty)* |
+| `TRUSTED_PROXY` | `1` when the API runs behind a trusted reverse proxy (rate limiting + queue key on the real client IP) | `0` |
+| `CORS_ORIGINS` | Comma-separated browser origins allowed to call the API (add your Vercel domain in production) | `http://localhost:8080,http://localhost:5173,http://127.0.0.1:8080` |
+| `MAX_UPLOAD_MB` | Maximum upload size | `200` |
+| `MAX_VIDEO_SECONDS` | Max clip duration — longer uploads are rejected (422) before any analysis work | `60` |
+| `MAX_FRAMES_TO_ANALYZE` | Cap on vision-model calls per request (bounds LLM cost) | `30` |
+| `YOLO_MODEL_PATH` | Weights file for the stock YOLO model (base COCO; no custom training) | `yolo11m.pt` |
+| `YOLO_CONF_THRESHOLD` | Minimum detection confidence for a class to pass the gate | `0.25` |
+| `YOLO_INTEREST_CLASSES` | Comma-separated base-COCO classes that justify escalating a frame to the LLM | `person,bicycle,car,motorcycle,bus,truck,knife` |
+| `ESCALATION_WINDOW_S` | Seconds SUSPICIOUS/CONFIRMING may idle before decaying back to IDLE | `120` |
+| `ESCALATION_CONFIRMING_HITS` | Gated detections required while CONFIRMING to reach ALERT (min 2) | `2` |
+| `ESCALATION_ALERT_TIMEOUT_S` | Seconds ALERT persists before decaying back to IDLE | `1000` |
+| `ESCALATION_COOLDOWN_S` | Seconds after a dispatch attempt before the same camera may alert again (`0` disables) | `0` |
+| `DESCRIPTION_LANGUAGES` | Server default languages for frame descriptions when no `language` field is sent | `en,ur` |
+| `RATE_LIMIT_PER_MINUTE` | Per-IP request limit per minute (`0` disables) | `0` |
+| `AMI_HOST` / `AMI_PORT` / `AMI_USERNAME` / `AMI_SECRET` | Asterisk Manager Interface credentials for placing emergency calls over the SIP trunk | `127.0.0.1` / `5038` / `sentinel_api` / *(set yours)* |
+| `ELEVENLABS_API_KEY` | Voice synthesis for dispatch calls (edge-tts used when empty) | *(set yours)* |
+| `ELEVENLABS_VOICE_ID` | ElevenLabs voice used for alert messages | `21m00Tcm4TlvDq8ikWAM` |
+| `ASTERISK_SOUNDS_DIR` | Directory the API writes `alert-*.wav` into for Asterisk playback | `/var/lib/asterisk/sounds/sentinel/` |
+| `AUDIO_OUTPUT_DIR` | Directory served by `GET /audio/{file}` | `generated_audio` |
+| `INCIDENTS_FILE` | JSON file storing analyzed incidents (created on first write) | `incidents.json` (Docker: `/app/data/incidents.json`) |
+| `REVERSE_GEOCODE_URL` | Reverse-geocoding endpoint turning client coordinates into a readable location (Nominatim — free, no key) | `https://nominatim.openstreetmap.org/reverse` |
+
+> 🔒 Never commit real keys or hashes tied to a live CNIC. `.env` is git-ignored; `.env.example` holds placeholders only.
+
+### 🔐 CNIC Authentication (Argon2id)
+
+CNICs are **never stored in plaintext**. Add the hash of a CNIC to `AUTHORIZED_CNICS` (authoritative/admin) or `NORMAL_USER_CNIC` (regular user):
+
+```bash
+python -c "from core.security import hash_cnic; print(hash_cnic('42101-2345678-9'))"
+```
+
+Paste the printed `$argon2id$…` value into `.env` (semicolon-separate multiple hashes). Login re-hashes the submitted CNIC and verifies it — the original CNIC can never be recovered from `.env`. CNICs in `AUTHORIZED_CNICS` return `user_type: "authoritative"`; the optional `NORMAL_USER_CNIC` hash returns `user_type: "user"`.
+
+---
+
+## 🔬 Detection Pipeline (motion → YOLO → LLM → agent)
 
 The vision LLM is only ever called after two cheap gates pass; everything else is discarded and logged locally, never escalated:
 
 ```
-motion detected → YOLO runs on that frame → interest class ≥ YOLO_CONF_THRESHOLD → vision LLM → agent
-                               ↓ else
-                    discard + log (debug per frame, info summary per video)
+motion detected → YOLO runs on that frame → interest class ≥ YOLO_CONF_THRESHOLD
+                → per-camera escalation state machine
+                    IDLE → SUSPICIOUS → CONFIRMING (vision LLM once) → ALERT → COOLDOWN
+                → agent (only on ALERT) → dispatch tools (1122 / 15 / 16)
 ```
 
-- **Gate 1 — motion:** adaptive threshold (mean × 0.8, minimum 0.15% of pixels) over a 15-frame history.
-- **Gate 2 — YOLO confidence + class:** `YOLO_CONF_THRESHOLD` and `YOLO_INTEREST_CLASSES` filter detections before any LLM call.
-- **Local logs:** each discarded frame is logged at debug level with its timestamp and reason; an info-level summary per video reports motion-discards, detection-discards, and escalated frames.
+- **Gate 1 — motion:** adaptive threshold over a 15-frame history; static footage never reaches YOLO.
+- **Gate 2 — YOLO:** `YOLO_CONF_THRESHOLD` + `YOLO_INTEREST_CLASSES` filter detections before any LLM call (stock COCO model, no custom training).
+- **State machine:** the SUSPICIOUS → CONFIRMING transition is the *only* point the vision LLM runs (capped by `MAX_FRAMES_TO_ANALYZE`); reaching ALERT requires `ESCALATION_CONFIRMING_HITS` gated detections; COOLDOWN throttles re-alerts per camera so a single camera can never flood the dispatcher.
+- **Agent:** on ALERT the LangChain agent verifies the incident and must call at least one tool. Tool failures never surface to the LLM or end user — the real outcome is recorded in the API's `dispatch[]` array.
 
-All gating runs on the **stock COCO model** — no custom training. The default class list uses COCO's relevant labels: `person` (falls, fights, robberies), vehicles (crashes), and `knife` (COCO's weapon class). Fire and falls have no COCO label; those scenes almost always also contain people or vehicles, which the base model catches and escalates. A scene with *only* fire and nothing else cannot be gated by the base model — that is an inherent limit of COCO, not a configuration issue.
+The default class list uses COCO's relevant labels: `person` (falls/fights/robberies), vehicles (crashes), `knife` (COCO's weapon class). Fire and falls have no COCO label, so scenes containing *only* fire cannot be gated by the base model — an inherent limit of stock COCO, not a configuration issue.
 
 ---
 
 ## 🌐 API
 
-All endpoints require a bearer token except `POST /login` and the `GET /health` probe.
+All endpoints require a bearer token except `POST /login` and `GET /health`.
 
 **1. Get a token** — `POST /login` with a valid CNIC (`12345-1234567-1` or 13 plain digits):
 
@@ -144,32 +248,30 @@ curl -X POST http://localhost:8754/login \
   -d '{"cnic": "42101-2345678-9"}'
 ```
 
-Invalid CNIC formats are rejected with `422`; CNICs that do not match a stored Argon2id hash get `401`.
+Invalid formats → `422`; CNICs not matching a stored Argon2id hash → `401`. Tokens live `TOKEN_TTL_HOURS` (24h) and are stored hashed (sha256) in memory.
 
-**Generating a CNIC hash** — CNICs must never be stored in plaintext. Run:
-
-```bash
-python -c "from core.security import hash_cnic; print(hash_cnic('42101-2345678-9'))"
-```
-
-and paste the printed `$argon2id$...` value into `AUTHORIZED_CNICS` (semicolon-separate multiple hashes). The hash is one-way: login verifies by re-hashing the submitted CNIC, so the original CNIC can never be recovered from `.env`.
-
-**2. Call the API** with the returned token:
+**2. Analyze a video** — `POST /analyze-video` (multipart, Bearer token):
 
 ```bash
 curl -X POST http://localhost:8754/analyze-video \
   -H "Authorization: Bearer <access_token>" \
-  -F "file=@test/car2.mp4" \
+  -F "file=@path/to/clip.mp4" \
   -F "language=ur" \
   -F "latitude=31.5204" \
   -F "longitude=74.3587"
 ```
 
-Missing/invalid/expired tokens get `401`. Tokens live `TOKEN_TTL_HOURS` (default 24h) and are stored hashed (sha256) in memory.
+| Form field | Required | Meaning |
+|---|---|---|
+| `file` | ✅ | MP4 / AVI / MOV, ≤ `MAX_UPLOAD_MB`, ≤ `MAX_VIDEO_SECONDS` (magic bytes are checked, not just the extension) |
+| `language` | — | `en`, `ur` or `en,ur` — drives the descriptions **and** the spoken alert (default: `DESCRIPTION_LANGUAGES`) |
+| `latitude` / `longitude` | — | GPS of the incident; reverse-geocoded into a readable place used by the agent and the voice message (both-or-neither) |
+| `camera_id` | — | Stable per-camera id → cross-upload escalation state + per-source queue (fallback: client IP) |
+| `single_upload` | — | `1` = one-off demo clip (fresh tracker, alert on first gated frame); `0` = chunked/live feeding |
 
-Response contains the frame descriptions in the requested language(s) inside `video_analysis.incidents[].llm_description`, plus a `location` object when coordinates were sent: the exact `latitude`/`longitude` you provided and the reverse-geocoded `display_name` / `label` (e.g. `"Gulberg III, Lahore"`) resolved via the external geocoder. The agent uses that location in its answer, and the tools embed it in the voice message ("This incident has occurred at …"). The spoken dispatch alert follows the requested language(s) too: Urdu when `ur` is among them (and an Urdu description is available), English otherwise. If geocoding fails, the response degrades to raw coordinates with a `geocode_error` field instead of failing the analysis.
+The response contains frame descriptions inside `video_analysis.incidents[].llm_description`, a `location` object (exact coordinates + reverse-geocoded `display_name` / `label`), the `agent_response`, and — when dispatch fired — a `dispatch[]` array plus `audio_file`. If geocoding fails, the response degrades to raw coordinates with a `geocode_error` field instead of failing. When no incident is detected, `dispatch`/`audio_file` are omitted entirely so the client can distinguish "no incident" from "incident but dispatch failed".
 
-**3. Dispatch results** — when the agent decides to notify an authority, the response includes a `dispatch` array (one entry per tool call), e.g.:
+**3. Dispatch results** — example entry when the agent notifies an authority:
 
 ```json
 {
@@ -182,45 +284,29 @@ Response contains the frame descriptions in the requested language(s) inside `vi
 }
 ```
 
-If the SIP call could not be placed, `status` is `"failed"` with an `error` field, and the generated audio URL is still returned so the caller can act on the alert. `GET /audio/{file}` (bearer token required) downloads the voice message.
+If the SIP call could not be placed, `status` is `"failed"` with an `error` field, and the generated audio URL is still returned so the caller can act on the alert. `GET /audio/{filename}` (Bearer token required) downloads the voice message.
 
-Tool failures are **never shown to the LLM or the end user**: tools return a neutral confirmation to the agent (so its answer stays clean and never mentions failures), while the real outcome is recorded in the `dispatch` array above.
+**4. Incident log** — every `/analyze-video` response that detected incidents appends a compact record to `INCIDENTS_FILE` (`{id, created_at, status, display_name, llm_desc, agent_answer, audio_file}`; status starts as `"new"`).
 
-**4. Incident log** — every `/analyze-video` response that detected incidents also appends a compact record to `INCIDENTS_FILE` (default `incidents.json`), holding only the relevant fields: the resolved `display_name`, the first description text (`llm_desc`), the `agent_answer`, the generated `audio_file` name, plus an `id`, `created_at` and a `status` that starts as `"new"`.
-
-List the incidents still waiting for attention (newest first; the response includes each record's `audio_file`, fetchable via `GET /audio/{file}`):
+List incidents still waiting for attention (newest first):
 
 ```bash
 curl http://localhost:8754/incidents/latest \
   -H "Authorization: Bearer <access_token>"
 ```
 
-```json
-{
-  "incidents": [
-    {
-      "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
-      "status": "new",
-      "created_at": "2026-09-01T12:00:00+00:00",
-      "display_name": "Gulberg III, Lahore",
-      "llm_desc": "A car crash scene involving two white cars.",
-      "agent_answer": "The relevant authorities are being notified.",
-      "audio_file": "alert-ab12cd34-1720000000.wav"
-    }
-  ]
-}
-```
-
-Mark an incident as handled — its status changes from `new` to `false`, after which `/incidents/latest` no longer includes it (no request body needed):
+Mark an incident as handled (status `new` → `false`, after which it no longer appears in `/incidents/latest`; no body needed):
 
 ```bash
 curl -X POST http://localhost:8754/incidents/<id>/pass \
   -H "Authorization: Bearer <access_token>"
 ```
 
-Unknown ids get `404`.
+Unknown ids → `404`.
 
-## ☎️ Emergency dispatch over the SIP trunk
+---
+
+## ☎️ Emergency Dispatch over the SIP Trunk
 
 The `call_ambulance` (1122), `call_police` (15) and `call_firebrigade` (16) tools place **real calls via SIP trunking**: they originate a call through the Asterisk Manager Interface on channel `PJSIP/<number>@sentinel-trunk` (context `sentinel-outbound`, exten `alert`) and pass the generated voice message via the `ALERT_FILE` channel variable.
 
@@ -233,53 +319,25 @@ exten => alert,1,Wait(1)
  same => n,Hangup()
 ```
 
-The voice message is generated from the LLM's incident description and the resolved location ("This incident has occurred at {location}"):
-- **ElevenLabs** when `ELEVENLABS_API_KEY` is set (raw PCM request — no conversion needed);
+The voice message is generated from the LLM's incident description and the resolved location ("This incident has occurred at …"):
+- **ElevenLabs** when `ELEVENLABS_API_KEY` is set (raw PCM — no conversion needed);
 - otherwise **edge-tts** (fast, no key, native Urdu voice `ur-PK-UzmaNeural`), converted to WAV via ffmpeg (included in the Docker image).
 
-The API writes the WAV into both `ASTERISK_SOUNDS_DIR` (for Asterisk playback) and `AUDIO_OUTPUT_DIR` (for `GET /audio`). The spoken alert follows the language(s) you request via the `language` form field: Urdu when `ur` is among them (and an Urdu description is available), English otherwise.
+The API writes the WAV into both `ASTERISK_SOUNDS_DIR` (for Asterisk playback) and `AUDIO_OUTPUT_DIR` (for `GET /audio`). The spoken alert follows the requested `language`: Urdu when `ur` is among them (and an Urdu description is available), English otherwise.
 
-> ⚠ Calls are placed automatically the moment the agent decides to. A human-in-loop approval gate is strongly recommended before live deployment.
+> ⚠️ Calls are placed automatically the moment the agent decides to. A human-in-the-loop approval gate is strongly recommended before live deployment.
 
-## ▶️ Run the server
+---
 
-Two equivalent ways to run the API, both serving port **8754** (`GET http://localhost:8754/health` returns `{"status": "ok"}`):
+## 🧪 Trying the pipeline
 
-**Option A — Docker (recommended):**
-
-```bash
-cp .env.example .env   # first time only, then fill it in
-docker compose up --build
-```
-
-The image uses `python:3.11-slim`, pre-downloads the YOLO weights at build time, and runs the exact same command as the manual mode (`python main.py`). Your `.env` is mounted read-only into the container — the API reads it itself, exactly like manual mode — so Argon2 hashes (`$argon2id$...`) pass through untouched (a compose `env_file` would mangle them). Generated alert audio is kept in a named Docker volume so it survives container rebuilds. Docker may print harmless `$`-interpolation warnings if your `.env` contains hashes; they do not affect the container.
-
-**Option B — Python directly:**
-
-```bash
-pip install -r requirements.txt
-python main.py
-```
-
-The server binds `0.0.0.0` and reads the port from the `PORT` environment variable (default `8754`):
-
-```bash
-PORT=9000 python main.py
-```
-
-If you change `PORT`, also update the `ports:` mapping in `docker-compose.yml` for the Docker mode.
-
-## 🧪 Test Videos
-
-Put your test MP4s in the `test/` folder (example: `test/car2.mp4`).
-
-Ensure correct file paths when calling functions — either run from project root or use absolute paths.
+1. Start the backend (Option 1 above).
+2. Log in with an authorized CNIC and call `/analyze-video` with any short MP4 clip (e.g. a street/car/person scene) — see the API section for `curl` examples.
+3. Use the website `/demo` page (Option 2) or the mobile app (Option 3) for the same pipeline through a UI.
+4. Detected incidents appear in `GET /incidents/latest`; in the mobile app, log in with an `authoritative` CNIC to watch the admin feed live.
 
 ---
 
 ## 📜 License
 
-This project is licensed under the **Apache‑2.0 License**.
-
----
-
+This project is licensed under the **Apache-2.0 License**. See [LICENSE](LICENSE).

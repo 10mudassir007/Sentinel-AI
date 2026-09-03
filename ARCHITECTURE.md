@@ -1,11 +1,37 @@
-Sentinel-AI architecture diagram
-================================
-Plain-text version of ARCHITECTURE.md (see the root README / ARCHITECTURE.md for the
-rendered image version). Two independent clients - the mobile app and the website -
-both point at one backend API. See also: ARCHITECTURE.md
+# Sentinel-AI Architecture
 
+Sentinel-AI is an automated video incident-detection platform: one FastAPI backend analyzes footage (motion → YOLO → vision LLM → escalation → optional emergency dispatch) and serves everything to its clients.<br>
+Two clients — the Expo mobile app and the React website — both talk to that same backend API.
+
+## Architecture diagram
+
+```mermaid
+flowchart TB
+    APP["Mobile App — app/ (Expo / React Native)"]
+    WEB["Website — website/ (React + Vite + shadcn/ui)"]
+
+    API["Backend API — FastAPI (:8754)"]
+    SERVICES["Service / Orchestration Layer"]
+    CORE["Core Layer"]
+    EXT["External Integrations"]
+    DEP["Data / Deployment"]
+
+    APP -->|"HTTPS + Bearer token"| API
+    WEB -->|"HTTPS + Bearer token"| API
+    API --> SERVICES
+    SERVICES --> CORE
+    CORE --> EXT
+    CORE --> DEP
+```
+
+> Visual overview of the platform (Mermaid — rendered automatically on GitHub). The sections below describe every block in the diagram, and the code block under **High-level view** is a full plain-text breakdown of the same components.
+
+## High-level view
+
+Sentinel-AI has **two independent clients** — the web application and the mobile application — that both talk to **one backend API**. The API runs the detection pipeline (motion → YOLO → vision LLM), a verification agent, optional emergency dispatch, and an incident log. Both clients authenticate the same way (`POST /login` with a CNIC) and consume the same endpoints.
+
+```
 CLIENTS
--------
   +----------------------------------------+      +----------------------------------------+
   | MOBILE APP - Expo (React Native)       |      | WEBSITE - React + Vite + shadcn/ui     |
   | app/                                   |      | website/                               |
@@ -97,9 +123,11 @@ CLIENTS
   |                                        |      | - website/ -> Vercel (SPA rewrites)    |
   |                                        |      | - app/ -> Expo Go / dev build          |
   +----------------------------------------+      +----------------------------------------+
+```
 
-DETECTION GATING INSIDE ONE CLIP
---------------------------------
+### Detection gating inside one clip
+
+```
 frame
   |
   v
@@ -115,40 +143,34 @@ SUSPICIOUS -> CONFIRMING      (vision LLM describes the frame once)
 ALERT -> agent runs -> dispatch tools call 1122 / 15 / 16 over the SIP trunk
   v
 COOLDOWN                      (re-alerts throttled per camera)
+```
 
-CLIENT COMPARISON
------------------
-| Concern            | Website (website/)                        | Mobile App (app/)                                      |
-|--------------------|--------------------------------------------|-------------------------------------------------------|
-| Platform           | Browser (React 18 + Vite + shadcn/ui)     | Android/iOS via Expo Go (React Native)                |
-| Main job           | Marketing site + /demo page that uploads   | Field app: record live footage in 5s chunks and       |
-|                    | a clip to the real backend                 | stream each chunk, or upload a clip                   |
-| CNIC login         | Auto-login with VITE_DEMO_CNIC for demo    | Manual login; role picks the UI ("user" vs admin)     |
-| single_upload      | Always 1 (one-off demo clip)               | 0 while recording chunks, 1 for demo upload           |
-| Video source       | File picked in the browser                 | expo-camera live recording or gallery file            |
-| Extra metadata     | Fixed demo lat/long + camera_id            | Real GPS (expo-location) + configurable camera_id     |
-| Other endpoints    | GET /audio/{file}                          | GET /audio/{file}, GET /incidents/latest,             |
-|                    |                                            | POST /incidents/{id}/pass, GET /health                |
-| Backend URL config | VITE_API_URL (.env / Vercel)               | EXPO_PUBLIC_API_URL (.env), overridable in-app        |
+## How the two clients differ
 
-NOTE: the website /demo page and the mobile app's "Upload Video" screen send a
-pre-recorded file purely to DEMONSTRATE the pipeline. In a real deployment the
-API is fed by LIVE video: the app's Record mode uploads continuous 5-second
-chunks, and stationary cameras stream/push clips with a stable camera_id.
+| Concern | 🌐 Website (`website/`) | 📱 Mobile App (`app/`) |
+|---|---|---|
+| Platform | Browser (React 18 + Vite + Tailwind + shadcn/ui) | Android/iOS via Expo Go (React Native) |
+| Main job | Marketing site **plus** a `/demo` page that uploads a clip to the real backend | Field app: **record live footage** in 5 s chunks and stream each chunk to the backend, or upload a clip |
+| CNIC login | Auto-login with `VITE_DEMO_CNIC` for the demo | Manual CNIC login; role decides the UI (`user` vs `authoritative`/admin) |
+| `single_upload` | Always `1` (one-off demo clip → fresh tracker, alert on first gated frame) | `0` when recording chunks (state machine persists via `camera_id`), `1` for the demo upload screen |
+| Video source | File picked in the browser | `expo-camera` live recording or gallery file |
+| Extra metadata | Fixed demo `latitude`/`longitude`/`camera_id` | Real GPS (`expo-location`) + user-configurable `camera_id` |
+| Other endpoints | `GET /audio/{file}` (plays the voice alert) | `GET /audio/{file}`, `GET /incidents/latest`, `POST /incidents/{id}/pass` (admin feed), `GET /health` (connection check) |
+| Backend URL config | `VITE_API_URL` (`.env` / Vercel) | `EXPO_PUBLIC_API_URL` (`.env`), overridable in the in-app Settings screen |
 
-REQUEST LIFECYCLE (POST /analyze-video)
----------------------------------------
-1. Client POST /login with a CNIC → bearer token + user_type.
-2. Client uploads video (multipart/form-data) with Bearer token + optional
-   language, latitude/longitude, camera_id, single_upload.
-3. api/routes.py validates extension + magic bytes + size + duration, then
-   queues per source (camera_id or client IP).
-4. video_service → process_video frame loop: motion → YOLO → escalation state
-   machine → vision LLM (SUSPICIOUS→CONFIRMING only, MAX_FRAMES_TO_ANALYZE cap).
-5. Coordinates reverse-geocoded (geocode) into a readable place.
-6. On ALERT the LangChain agent verifies and must call dispatch tools; a real
-   SIP call is placed via Asterisk AMI with a TTS voice message.
-7. Response: filename, camera_id, location, escalation, incidents_detected,
-   video_analysis, agent_response, dispatch[], audio_file; incident record
-   appended to incidents.json.
-8. Authoritative clients poll /incidents/latest, play audio, mark handled.
+> ⚠️ **Demo-only uploads:** the website `/demo` page and the mobile app's **Upload Video** screen send a *pre-recorded file* to `POST /analyze-video` purely to demonstrate the detection pipeline. In a real deployment the same API is fed by **live video** — the mobile app's Record mode already behaves like this by uploading continuous 5-second chunks, and stationary cameras would stream (or push short clips with a stable `camera_id`) the same way.
+
+## Request lifecycle (`POST /analyze-video`)
+
+1. Client calls `POST /login` with a CNIC and receives a bearer token (`user_type` tells the client which UI to show).
+2. Client uploads a video (`multipart/form-data`) with `Authorization: Bearer <token>` plus optional `language`, `latitude`/`longitude`, `camera_id`, `single_upload`.
+3. `api/routes.py` validates extension + magic bytes, size and duration, then queues the clip per source (`camera_id` or client IP) so clips from one camera never overlap.
+4. `services/video_service` → `services/process_video` runs the frame loop: motion gate → YOLO gate → escalation state machine → vision LLM (only on the SUSPICIOUS → CONFIRMING transition, capped by `MAX_FRAMES_TO_ANALYZE`).
+5. Coordinates are reverse-geocoded (`services/geocode`) into a readable place used in the analysis and the spoken alert.
+6. On ALERT, the LangChain agent (`core/agent`) verifies the incident and is forced to call one or more dispatch tools (`core/tools`); the tool places a real SIP call through Asterisk AMI and a TTS voice message is generated (ElevenLabs or edge-tts).
+7. The API returns `{filename, camera_id, location, escalation, incidents_detected, video_analysis, agent_response, dispatch[], audio_file}` and appends a compact record to `incidents.json` when incidents were found.
+8. Authoritative clients poll `GET /incidents/latest` (or fetch right after an upload) and can play the alert with `GET /audio/{file}`; `POST /incidents/{id}/pass` marks an incident handled.
+
+## See also
+
+- [README.md](README.md) — how to run the API, the website and the app
