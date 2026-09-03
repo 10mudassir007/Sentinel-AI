@@ -13,10 +13,12 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# yolo11m.pt is copied from the project root by COPY . . below, so there is
-# no need to pre-download it. The model file already ships with the repo.
-
 COPY . .
+
+# Ensure YOLO weights are available: if yolo11m.pt was copied from the repo
+# (local builds) this just validates it; if not (CI builds where .pt files are
+# git-ignored), ultralytics downloads it from the release hub.
+RUN python -c "from ultralytics import YOLO; YOLO('yolo11m.pt')"
 
 RUN useradd --create-home --shell /usr/sbin/nologin appuser \
     && mkdir -p /app/generated_audio /app/data \

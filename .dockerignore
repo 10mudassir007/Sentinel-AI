@@ -7,6 +7,7 @@ venv/
 .git/
 .gitignore
 test/
+tests/
 website/node_modules/
 website/dist/
 addons.txt
