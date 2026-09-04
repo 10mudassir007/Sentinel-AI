@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "Automated video incident-detection platform — motion → YOLO → LLM → emergency dispatch over SIP trunk"
 readme = "README.md"
 license = {text = "Apache-2.0"}
-requires-python = "==3.12.10"
+requires-python = "==3.12"
 authors = [
     {name = "Sentinel AI Contributors"},
 ]
@@ -25,7 +25,6 @@ dependencies = [
     "groq>=0.37",
     "edge-tts>=7.2",
     "elevenlabs>=2.65",
-    "opencv-python-headless",
     "ultralytics>=8.4",
     "numpy>=2.5",
     "torch>=2.13",
