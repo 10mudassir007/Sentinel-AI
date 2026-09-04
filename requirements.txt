@@ -66,8 +66,8 @@ torch==2.12.0
 torchvision==0.27.0
 typing-inspection==0.4.4
 typing_extensions==4.16.0
-ultralytics==8.4.98
 ultralytics-thop==2.0.20
+ultralytics-opencv-headless==8.4.98
 opencv-python-headless==4.13.0.92
 urllib3==2.7.0
 websockets==16.1.1
