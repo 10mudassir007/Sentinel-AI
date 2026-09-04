@@ -25,7 +25,7 @@ dependencies = [
     "groq>=0.37",
     "edge-tts>=7.2",
     "elevenlabs>=2.65",
-    "opencv-python-headless==4.13.0.92",
+    "opencv-python-headless",
     "ultralytics>=8.4",
     "numpy>=2.5",
     "torch>=2.13",
