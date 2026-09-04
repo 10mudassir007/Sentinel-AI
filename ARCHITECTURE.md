@@ -119,7 +119,7 @@ CLIENTS
   | - Reverse geocoder (Nominatim default) |      | - incidents.json + generated_audio/    |
   | - Asterisk AMI over the SIP trunk      |      |   (alert-*.wav) - pruned periodically  |
   | - TTS: ElevenLabs or edge-tts (no key, |      | - YOLO weights yolo11m.pt (stock COCO) |
-  |   Urdu voice ur-PK-UzmaNeural)         |      | - Docker: python:3.11-slim, port :8754 |
+  |   Urdu voice ur-PK-UzmaNeural)         |      | - Docker: python:3.12-slim, port :8754 |
   |                                        |      | - website/ -> Vercel (SPA rewrites)    |
   |                                        |      | - app/ -> Expo Go / dev build          |
   +----------------------------------------+      +----------------------------------------+

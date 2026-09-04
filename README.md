@@ -6,7 +6,7 @@ The repository contains **three deployable parts** that talk to each other:
 
 | Part | Location | Stack | How to run |
 |---|---|---|---|
-| 🖥️ **Backend API** (this folder) | `main.py`, `api/`, `core/`, `services/` | Python 3.11 · FastAPI · OpenCV · YOLO · LangChain | Docker or `python main.py` |
+| 🖥️ **Backend API** (this folder) | `main.py`, `api/`, `core/`, `services/` | Python 3.12 · FastAPI · OpenCV · YOLO · LangChain | Docker or `python main.py` |
 | 🌐 **Website** | `website/` | React 18 · Vite · TypeScript · Tailwind · shadcn/ui | `npm run dev` → `:5173` (Vercel for prod) |
 | 📱 **Mobile app** | `app/` | Expo (React Native) · TypeScript | Expo Go / `npx expo start` |
 
@@ -70,7 +70,7 @@ Sentinel-AI/
 ├── yolo11m.pt                # Stock COCO YOLO weights (no custom training)
 ├── ARCHITECTURE.md           # Architecture diagram (Mermaid + plain-text breakdown)
 ├── .env.example              # Backend environment template
-├── DockerFile                # python:3.11-slim image
+├── DockerFile                # python:3.12-slim image
 ├── docker-compose.yml        # docker compose up --build  (:8754)
 ├── main.py                   # FastAPI app — the backend entry point
 ├── requirements.txt
@@ -85,7 +85,7 @@ Sentinel-AI/
 
 ### Option 1 — Backend API
 
-**Prerequisites:** Python 3.11+, Docker (recommended) or a local Python environment.
+**Prerequisites:** Python 3.12+, Docker (recommended) or a local Python environment.
 
 ```bash
 # 1. Configure environment (keys, CNIC hashes, limits — see table below)

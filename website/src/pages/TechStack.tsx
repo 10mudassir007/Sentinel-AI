@@ -29,7 +29,7 @@ const techCategories = [
     title: "Backend & API",
     description: "Core server framework and API layer powering the detection pipeline.",
     items: [
-      { name: "Python 3.11", desc: "Primary runtime language for all backend services.", icon: FlaskConical, color: "text-blue-400" },
+      { name: "Python 3.12", desc: "Primary runtime language for all backend services.", icon: FlaskConical, color: "text-blue-400" },
       { name: "FastAPI", desc: "Async Python web framework handling all HTTP endpoints, file uploads, and WebSocket connections.", icon: Server, color: "text-emerald-400" },
       { name: "Uvicorn", desc: "High-performance ASGI server running the FastAPI application on port 8754.", icon: Zap, color: "text-amber-400" },
       { name: "Pydantic", desc: "Data validation and settings management for API request/response models.", icon: CheckCircle2, color: "text-cyan-400" },
@@ -75,7 +75,7 @@ const techCategories = [
     items: [
       { name: "Argon2id", desc: "Memory-hard password hashing for CNIC-based authentication with 24-hour bearer token expiry.", icon: Lock, color: "text-emerald-400" },
       { name: "Geopy / Nominatim", desc: "Reverse geocoding service converting GPS coordinates to human-readable location for dispatch alerts.", icon: MapPin, color: "text-sky-400" },
-      { name: "Docker", desc: "Containerized deployment on Python 3.11-slim with multi-stage builds.", icon: Globe, color: "text-blue-400" },
+      { name: "Docker", desc: "Containerized deployment on Python 3.12-slim with multi-stage builds.", icon: Globe, color: "text-blue-400" },
       { name: "Rate Limiting", desc: "Per-IP and per-source request throttling with max upload size enforcement and magic-byte validation.", icon: Activity, color: "text-yellow-400" },
     ],
     borderColor: "border-emerald-400/20",
