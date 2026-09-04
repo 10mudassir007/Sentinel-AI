@@ -13,6 +13,7 @@ def store(tmp_path):
     db_path = tmp_path / "incidents.json"
     with patch("services.incident_store.INCIDENTS_FILE", str(db_path)):
         import services.incident_store as mod
+
         mod._path = Path(str(db_path))
         yield mod
 

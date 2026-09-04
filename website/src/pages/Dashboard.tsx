@@ -26,6 +26,7 @@ import {
 } from "recharts";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { containerVariants, itemVariants } from "@/lib/utils";
 
 // --- Sample / Demo Data ---
 
@@ -111,23 +112,6 @@ const statCards = [
     bgColor: "bg-emerald-400/10",
   },
 ];
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.06 },
-  },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.4 },
-  },
-};
 
 const Dashboard = () => {
   return (

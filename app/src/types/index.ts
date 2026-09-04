@@ -9,10 +9,6 @@ export interface AppSettings {
   shareLocation: boolean;
 }
 
-export interface LoginRequest {
-  cnic: string;
-}
-
 export interface LoginResponse {
   access_token: string;
   token_type: string;
@@ -55,13 +51,6 @@ export interface ChunkedSessionResult {
   lastAudioFile: string | null;
   lastAgentResponse: string | null;
 }
-
-export type RootStackParamList = {
-  LanguageSelect: undefined;
-  Login: undefined;
-  UserTabs: undefined;
-  AdminTabs: undefined;
-};
 
 export type UserStackParamList = {
   UserHome: undefined;
@@ -137,6 +126,47 @@ export type TranslationKey =
   | "location_fetching"
   | "location_unavailable"
   | "save"
-  | "login_security_note";
+  | "login_security_note"
+  | "authorized_use_only"
+  // Recording / upload / result screens
+  | "analyzing_chunks"
+  | "analyzing_pipeline"
+  | "camera"
+  | "camera_permission_text"
+  | "camera_required"
+  | "chunk_label"
+  | "chunks_5s"
+  | "demo_upload_desc"
+  | "details"
+  | "detection_modes"
+  | "detection_modes_desc"
+  | "file"
+  | "gallery_permission_text"
+  | "gps"
+  | "grant_permission"
+  | "incident_many"
+  | "incident_one"
+  | "invalid_url"
+  | "live"
+  | "location"
+  | "na"
+  | "pass_failed"
+  | "pause"
+  | "pending"
+  | "audio"
+  | "per_chunk_breakdown"
+  | "permission_required"
+  | "play"
+  | "polling_range"
+  | "record_desc"
+  | "server_busy_msg"
+  | "settings_saved"
+  | "single_file"
+  | "single_upload_note"
+  | "supported_formats"
+  | "upload_desc"
+  | "upload_failed_msg"
+  | "video_too_large"
+  | "video_too_long";
 
 export type Translations = Record<AppLanguage, Record<TranslationKey, string>>;

@@ -67,7 +67,7 @@ Sentinel-AI/
 ├── website/                  # 🌐 Website — React + Vite + shadcn/ui (Vercel)
 │   └── src/pages/            #   landing, how-it-works, demo, dashboard, tech-stack …
 ├── generated_audio/          # Voice alerts served by GET /audio/{file}
-├── yolo11m.pt / yolo26n.pt   # Stock COCO YOLO weights (no custom training)
+├── yolo11m.pt                # Stock COCO YOLO weights (no custom training)
 ├── ARCHITECTURE.md           # Architecture diagram (Mermaid + plain-text breakdown)
 ├── .env.example              # Backend environment template
 ├── DockerFile                # python:3.11-slim image
@@ -199,7 +199,7 @@ AUTHORIZED_CNICS='$argon2id$…'
 | `AUTHORIZED_CNICS` | Semicolon-separated **Argon2id hashes** of CNICs that log in as `authoritative`; empty = nobody can log in | `$argon2id$…` (demo CNIC `42101-2345678-9`) |
 | `NORMAL_USER_CNIC` | Optional Argon2id hash of the "normal user" CNIC → logs in as `user` instead of `authoritative` | *(empty)* |
 | `TRUSTED_PROXY` | `1` when the API runs behind a trusted reverse proxy (rate limiting + queue key on the real client IP) | `0` |
-| `CORS_ORIGINS` | Comma-separated browser origins allowed to call the API (add your Vercel domain in production) | `http://localhost:8080,http://localhost:5173,http://127.0.0.1:8080` |
+| `CORS_ORIGINS` | Comma-separated browser origins allowed to call the API (add your Vercel domain in production) | `http://localhost:8754,http://localhost:5173,http://127.0.0.1:8754` |
 | `MAX_UPLOAD_MB` | Maximum upload size | `200` |
 | `MAX_VIDEO_SECONDS` | Max clip duration — longer uploads are rejected (422) before any analysis work | `60` |
 | `MAX_FRAMES_TO_ANALYZE` | Cap on vision-model calls per request (bounds LLM cost) | `30` |
@@ -236,6 +236,7 @@ Paste the printed `$argon2id$…` value into `.env` (semicolon-separate multiple
 > deployment, `AUTHORIZED_CNICS` would be replaced with a database-backed user store
 > (e.g. PostgreSQL) — CNICs are registered through a secure admin interface, hashed with
 > Argon2id on write, and looked up on login just like the env-based flow.
+
 
 ---
 
@@ -290,7 +291,7 @@ curl -X POST http://localhost:8754/analyze-video \
 | `language` | — | `en`, `ur` or `en,ur` — drives the descriptions **and** the spoken alert (default: `DESCRIPTION_LANGUAGES`) |
 | `latitude` / `longitude` | — | GPS of the incident; reverse-geocoded into a readable place used by the agent and the voice message (both-or-neither) |
 | `camera_id` | — | Stable per-camera id → cross-upload escalation state + per-source queue (fallback: client IP) |
-| `single_upload` | — | `1` = one-off demo clip (fresh tracker, alert on first gated frame); `0` = chunked/live feeding |
+| `single_upload` | — | `1` = one-off demo clip (fresh tracker; the alert still needs `ESCALATION_CONFIRMING_HITS` gated detections to confirm); `0` = chunked/live feeding |
 
 The response contains frame descriptions inside `video_analysis.incidents[].llm_description`, a `location` object (exact coordinates + reverse-geocoded `display_name` / `label`), the `agent_response`, and — when dispatch fired — a `dispatch[]` array plus `audio_file`. If geocoding fails, the response degrades to raw coordinates with a `geocode_error` field instead of failing. When no incident is detected, `dispatch`/`audio_file` are omitted entirely so the client can distinguish "no incident" from "incident but dispatch failed".
 
@@ -310,6 +311,8 @@ The response contains frame descriptions inside `video_analysis.incidents[].llm_
 If the SIP call could not be placed, `status` is `"failed"` with an `error` field, and the generated audio URL is still returned so the caller can act on the alert. `GET /audio/{filename}` (Bearer token required) downloads the voice message.
 
 **4. Incident log** — every `/analyze-video` response that detected incidents appends a compact record to `INCIDENTS_FILE` (`{id, created_at, status, display_name, llm_desc, agent_answer, audio_file}`; status starts as `"new"`).
+
+> 🔐 The `/incidents/latest` and `/incidents/{id}/pass` endpoints require a token from an **authoritative** CNIC — `user`-role tokens get `403`.
 
 List incidents still waiting for attention (newest first):
 

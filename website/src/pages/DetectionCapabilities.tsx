@@ -14,6 +14,7 @@ import {
 import { motion } from "framer-motion";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { containerVariants, itemVariants } from "@/lib/utils";
 
 const incidentTypes = [
   {
@@ -97,23 +98,6 @@ const incidentTypes = [
     borderColor: "border-cyan-400/20",
   },
 ];
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.08 },
-  },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 30 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.5 },
-  },
-};
 
 const DetectionCapabilities = () => {
   return (

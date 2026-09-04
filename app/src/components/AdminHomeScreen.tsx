@@ -22,9 +22,9 @@ import {
   getLocalAudioUri,
 } from "../api/endpoints";
 import { loadSettings } from "../store/settings";
-import type { Incident } from "../types";
+import { maskCnic } from "../constants";
+import type { Incident, AdminStackParamList } from "../types";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import type { AdminStackParamList } from "../types";
 import IncidentAlertModal from "./IncidentAlertModal";
 
 // How long a newly created incident stays highlighted as a flashing alert
@@ -47,7 +47,10 @@ export default function AdminHomeScreen({ navigation }: Props) {
   const [isLoading, setIsLoading] = useState(true);
   const [passingIds, setPassingIds] = useState<Set<string>>(new Set());
   const [alertIncident, setAlertIncident] = useState<Incident | null>(null);
-  const [knownIds, setKnownIds] = useState<Set<string>>(new Set());
+  // Known incident ids live in a ref so the polling closure always sees the
+  // latest set (a state snapshot in the interval callback would go stale).
+  const knownIdsRef = useRef<Set<string>>(new Set());
+  const fetchingRef = useRef(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
@@ -107,28 +110,35 @@ export default function AdminHomeScreen({ navigation }: Props) {
 
   // Fetch incidents on mount + polling
   const loadIncidents = useCallback(async () => {
+    // Skip when a previous fetch is still in flight (request > interval)
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
     try {
       const data = await fetchLatestIncidents();
 
       // Detect new incidents for alert
       const currentIds = new Set(data.map((i) => i.id));
-      const newOnes = data.filter(
-        (i) => !knownIds.has(i.id) && knownIds.size > 0
-      );
-
-      if (newOnes.length > 0) {
-        // Trigger alert for the newest incident
-        setAlertIncident(newOnes[0]);
+      const known = knownIdsRef.current;
+      if (known.size > 0) {
+        const newOnes = data.filter((i) => !known.has(i.id));
+        if (newOnes.length > 0) {
+          // Trigger alert for the newest incident
+          setAlertIncident(newOnes[0]);
+        }
       }
 
-      setKnownIds(currentIds);
+      knownIdsRef.current = currentIds;
       setIncidents(data);
     } catch (err) {
-      console.error("Failed to fetch incidents:", err);
+      console.error(
+        "Failed to fetch incidents:",
+        err instanceof Error ? err.message : "unknown error"
+      );
     } finally {
+      fetchingRef.current = false;
       setIsLoading(false);
     }
-  }, [knownIds]);
+  }, []);
 
   useEffect(() => {
     loadIncidents();
@@ -140,7 +150,7 @@ export default function AdminHomeScreen({ navigation }: Props) {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, []);
+  }, [loadIncidents]);
 
   // Stop playback and release the active player (also cancels a pending
   // audio download so it never starts playing after being stopped)
@@ -160,7 +170,6 @@ export default function AdminHomeScreen({ navigation }: Props) {
   // Cleanup audio on unmount
   useEffect(() => {
     return () => stopPlayback();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Re-fetch when polling interval changes
@@ -186,13 +195,9 @@ export default function AdminHomeScreen({ navigation }: Props) {
     try {
       await passIncident(incidentId);
       setIncidents((prev) => prev.filter((i) => i.id !== incidentId));
-      setKnownIds((prev) => {
-        const next = new Set(prev);
-        next.delete(incidentId);
-        return next;
-      });
+      knownIdsRef.current.delete(incidentId);
     } catch {
-      Alert.alert(t("error"), "Failed to mark incident as processed.");
+      Alert.alert(t("error"), t("pass_failed"));
     } finally {
       setPassingIds((prev) => {
         const next = new Set(prev);
@@ -244,7 +249,10 @@ export default function AdminHomeScreen({ navigation }: Props) {
         }
       });
     } catch (err) {
-      console.error("Audio playback failed:", err);
+      console.error(
+        "Audio playback failed:",
+        err instanceof Error ? err.message : "unknown error"
+      );
       stopPlayback();
     }
   };
@@ -333,7 +341,7 @@ export default function AdminHomeScreen({ navigation }: Props) {
                 <ActivityIndicator size="small" color={colors.foreground} />
               ) : (
                 <Text style={styles.actionBtnText}>
-                  {playingId === item.id ? "⏹" : "▶"} Audio
+                  {playingId === item.id ? "⏹" : "▶"} {t("audio")}
                 </Text>
               )}
             </TouchableOpacity>
@@ -370,7 +378,7 @@ export default function AdminHomeScreen({ navigation }: Props) {
         <View>
           <Text style={styles.headerTitle}>{t("incident_list")}</Text>
           <Text style={styles.headerSub}>
-            {incidents.length} pending | {cnic}
+            {incidents.length} {t("pending")} | {cnic ? maskCnic(cnic) : ""}
           </Text>
         </View>
         <TouchableOpacity

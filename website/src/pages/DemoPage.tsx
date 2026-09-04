@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Upload,
   Play,
@@ -20,132 +20,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { motion } from "framer-motion";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { ApiClient, isApiError } from "@/lib/api";
+import type { AnalyzeVideoResponse, Incident, DispatchEntry } from "@/lib/api";
+import { sampleResponse } from "./demo-sample";
 
-// --- Sample backend response matching the REAL /analyze-video response shape ---
-const sampleResponse = {
-  filename: "sample_footage.mp4",
-  camera_id: "web-demo",
-  location: { display_name: "Kallar Kahar, Pakistan" },
-  escalation: { state: "ALERT" },
-  incidents_detected: 1,
-  video_analysis: {
-    total_frames: 240,
-    camera_id: "web-demo",
-    alert: true,
-    incidents: [
-      {
-        timestamp: 12.4,
-        objects: [
-          { label: "car", confidence: 0.91, bbox: [180, 240, 480, 420] },
-          { label: "person", confidence: 0.86, bbox: [320, 180, 420, 520] },
-        ],
-        llm_description:
-          "Two vehicles have collided at the intersection. Airbags are deployed and occupants appear motionless. Smoke is rising from the front of the first vehicle.",
-      },
-    ],
-  },
-  agent_response: `## Incident Analysis Report
-
-**Classification:** Vehicle Collision
-**Confidence:** 91%
-**Severity:** High
-
-**Detection Details:**
-The YOLO11m model identified two damaged vehicles (car, 91%) with deployed airbags at the scene. Motion analysis suggests impact occurred within the last 60 seconds.
-
-**Reasoning Assessment:**
-Severity indicators (airbag deployment, occupant immobility) suggest serious injuries.
-
-**Escalation Decision:** ESCALATE
-- Notify: Police + Ambulance
-- Priority: High
-- Evidence: Video clip attached (12.4s)`,
-  dispatch: [
-    {
-      tool: "call_police",
-      service: "police",
-      destination: "15",
-      transport: "Asterisk AMI over SIP trunk",
-      status: "placed",
-      location: "Kallar Kahar, Pakistan",
-      audio: { name: "sample_police_alert.wav" },
-    },
-    {
-      tool: "call_ambulance",
-      service: "ambulance",
-      destination: "1122",
-      transport: "Asterisk AMI over SIP trunk",
-      status: "placed",
-      location: "Kallar Kahar, Pakistan",
-      audio: { name: "sample_ambulance_alert.wav" },
-    },
-  ],
-  audio_file: "sample_ambulance_alert.wav",
-};
-
-// --- Types mirroring the FastAPI /analyze-video response models ---
-type ContentBlock = { type?: string; text?: string; [key: string]: unknown };
-
-type DetectedObject = {
-  label: string;
-  confidence?: number;
-  bbox?: number[];
-};
-
-type Incident = {
-  timestamp: number;
-  objects?: DetectedObject[];
-  llm_description?: string | ContentBlock[];
-};
-
-type DispatchEntry = {
-  tool?: string;
-  service?: string;
-  destination?: string;
-  status?: string;
-  error?: string;
-  location?: string;
-  audio?: { name?: string };
-};
-
-type AnalyzeVideoResponse = {
-  filename?: string;
-  camera_id?: string;
-  location?: { display_name?: string };
-  escalation?: { state?: string };
-  incidents_detected?: number;
-  video_analysis?: {
-    total_frames?: number;
-    camera_id?: string;
-    alert?: boolean;
-    incidents?: Incident[];
-  };
-  agent_response?: string | ContentBlock[];
-  dispatch?: DispatchEntry[];
-  audio_file?: string;
-};
-
-// LangChain LLM responses can be a plain string OR a list of content blocks
-// like [{ type: "text", text: "...", extras: ... }] — normalize both to text.
-const textOf = (value: unknown): string => {
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) return value.map(textOf).filter(Boolean).join(" ");
-  if (value && typeof value === "object" && "text" in value && typeof value.text === "string") return value.text;
-  return "";
-};
-
-// analyzeVideo throws errors carrying the HTTP status — narrow safely.
-const isApiError = (error: unknown): error is { status: number; message: string } =>
-  typeof error === "object" && error !== null && "status" in error;
-
-const pipelineStages = [
-  { id: "motion", label: "Motion Gate", icon: Activity, color: "text-cyan-400" },
-  { id: "yolo", label: "YOLO11m", icon: Eye, color: "text-purple-400" },
-  { id: "reasoning", label: "LangChain", icon: Brain, color: "text-indigo-400" },
-  { id: "dispatch", label: "Dispatch", icon: Phone, color: "text-red-400" },
-];
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8754";
 const DEMO_CNIC = import.meta.env.VITE_DEMO_CNIC || "";
 const DEMO_LANGUAGE = "en";
 const DEMO_LATITUDE = "25.39689";
@@ -156,10 +34,30 @@ const DEMO_SINGLE_UPLOAD = "1";
 // Matches the backend limit (MAX_UPLOAD_MB) — enforced here to avoid streaming
 // oversized or non-video files to the server.
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
-const VIDEO_EXTENSION = /\.(mp4|avi|mov|mkv|webm)$/i;
+// Only extensions the backend (routes.py) actually accepts.
+const VIDEO_EXTENSION = /\.(mp4|avi|mov)$/i;
+
+// Single shared client instance for the life of the page.
+const apiClient = new ApiClient(undefined, DEMO_CNIC);
+
+// LangChain LLM responses can be a plain string OR a list of content blocks
+// like [{ type: "text", text: "...", extras: ... }] — normalize both to text.
+const textOf = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(textOf).filter(Boolean).join(" ");
+  if (value && typeof value === "object" && "text" in value && typeof value.text === "string") return value.text;
+  return "";
+};
+
+const pipelineStages = [
+  { id: "motion", label: "Motion Gate", icon: Activity, color: "text-cyan-400" },
+  { id: "yolo", label: "YOLO11m", icon: Eye, color: "text-purple-400" },
+  { id: "reasoning", label: "LangChain", icon: Brain, color: "text-indigo-400" },
+  { id: "dispatch", label: "Dispatch", icon: Phone, color: "text-red-400" },
+];
 
 const DemoPage = () => {
-  const [uploadState, setUploadState] = useState<"idle" | "uploading" | "processing" | "complete">("idle");
+  const [uploadState, setUploadState] = useState<"idle" | "processing" | "complete">("idle");
   const [fileName, setFileName] = useState<string>("");
   const [apiResponse, setApiResponse] = useState<AnalyzeVideoResponse | null>(null);
   const [isFallback, setIsFallback] = useState(false);
@@ -167,86 +65,18 @@ const DemoPage = () => {
 
   const [apiError, setApiError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string>("");
-  const authTokenRef = useRef<{ token: string; expiresAt: number } | null>(null);
-  const authPromiseRef = useRef<Promise<string> | null>(null);
   const audioUrlRef = useRef<string>("");
 
-  const login = async (): Promise<string> => {
-    if (!DEMO_CNIC) throw new Error("VITE_DEMO_CNIC is not configured in .env");
-    const response = await fetch(`${API_URL}/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cnic: DEMO_CNIC }),
-    });
-    if (!response.ok) throw new Error(`Login failed (${response.status})`);
-    const data = await response.json();
-    // Backend may return ISO-8601 or epoch seconds — normalize to epoch ms.
-    const rawExpiry = data.expires_at;
-    const parsedExpiry =
-      typeof rawExpiry === "number"
-        ? rawExpiry * 1000
-        : new Date(rawExpiry).getTime();
-    authTokenRef.current = {
-      token: data.access_token,
-      expiresAt: Number.isFinite(parsedExpiry) ? parsedExpiry : Date.now() + 24 * 60 * 60 * 1000,
+  // Clean up the audio blob URL when the component unmounts.
+  useEffect(() => {
+    return () => {
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
     };
-    return data.access_token;
-  };
+  }, []);
 
-  const ensureAuthToken = (): Promise<string> => {
-    // Reuse the token until it is close to expiring (backend tokens last 24h)
-    if (authTokenRef.current && authTokenRef.current.expiresAt > Date.now() + 60_000) {
-      return Promise.resolve(authTokenRef.current.token);
-    }
-    if (!authPromiseRef.current) {
-      authPromiseRef.current = login().finally(() => {
-        authPromiseRef.current = null;
-      });
-    }
-    return authPromiseRef.current;
-  };
-
-  const analyzeVideo = async (file: File, token: string) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("language", DEMO_LANGUAGE);
-    formData.append("latitude", DEMO_LATITUDE);
-    formData.append("longitude", DEMO_LONGITUDE);
-    formData.append("camera_id", DEMO_CAMERA_ID);
-    formData.append("single_upload", DEMO_SINGLE_UPLOAD);
-
-    const response = await fetch(`${API_URL}/analyze-video`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: formData,
-    });
-    if (!response.ok) {
-      let detail = "";
-      try {
-        const body = await response.json();
-        detail = typeof body?.detail === "string" ? body.detail : "";
-      } catch {
-        // Non-JSON error body — ignore
-      }
-      const error = new Error(
-        detail
-          ? `API rejected the request (${response.status}): ${detail}`
-          : `Server error (${response.status})`
-      ) as Error & { status: number };
-      error.status = response.status;
-      throw error;
-    }
-    return response.json();
-  };
-
-  const loadAudio = async (filename: string) => {
+  const loadAudio = useCallback(async (filename: string) => {
     try {
-      const token = await ensureAuthToken();
-      const response = await fetch(`${API_URL}/audio/${encodeURIComponent(filename)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error(`Audio fetch failed (${response.status})`);
-      const blob = await response.blob();
+      const blob = await apiClient.fetchAudio(filename);
       // Release the previous object URL so repeated uploads do not leak blobs.
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
       audioUrlRef.current = URL.createObjectURL(blob);
@@ -254,7 +84,7 @@ const DemoPage = () => {
     } catch (error) {
       console.warn("Could not load voice alert:", error);
     }
-  };
+  }, []);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -269,57 +99,47 @@ const DemoPage = () => {
     }
 
     setFileName(file.name);
-    setUploadState("uploading");
+    setApiError(null);
     setIsFallback(false);
+    setUploadState("processing");
 
-    try {
-      setUploadState("processing");
+    // Fire the API call immediately, animate pipeline stages alongside it.
+    const apiPromise = apiClient
+      .analyzeVideo(file, {
+        language: DEMO_LANGUAGE,
+        latitude: DEMO_LATITUDE,
+        longitude: DEMO_LONGITUDE,
+        cameraId: DEMO_CAMERA_ID,
+        singleUpload: DEMO_SINGLE_UPLOAD,
+      })
+      .then((data) => {
+        setApiResponse(data);
+        if (data?.audio_file) loadAudio(data.audio_file);
+        setActiveStage("dispatch");
+        return data;
+      })
+      .catch((error) => {
+        console.error("API Error:", error);
+        setApiError(isApiError(error) ? error.message : null);
+        setApiResponse(sampleResponse);
+        setIsFallback(true);
+        setActiveStage("dispatch");
+      });
 
-      // Animate through pipeline stages
-      setActiveStage("motion");
-      await new Promise((r) => setTimeout(r, 600));
-      setActiveStage("yolo");
-      await new Promise((r) => setTimeout(r, 800));
-      setActiveStage("reasoning");
-      await new Promise((r) => setTimeout(r, 700));
+    // Animate through pipeline stages concurrently while the API works.
+    setActiveStage("motion");
+    await new Promise((r) => setTimeout(r, 600));
+    setActiveStage("yolo");
+    await new Promise((r) => setTimeout(r, 800));
+    setActiveStage("reasoning");
 
-      // Auto-authenticate with the CNIC from .env, then analyze the video
-      let token = await ensureAuthToken();
-      let data: AnalyzeVideoResponse;
-      try {
-        data = await analyzeVideo(file, token);
-      } catch (error) {
-        if (isApiError(error) && error.status === 401) {
-          // Bearer token expired — re-login and retry once
-          authTokenRef.current = null;
-          token = await ensureAuthToken();
-          data = await analyzeVideo(file, token);
-        } else {
-          throw error;
-        }
-      }
+    // Wait for the API to finish (if it hasn't already).
+    await apiPromise;
 
-      setApiResponse(data);
-      if (data?.audio_file) loadAudio(data.audio_file);
-      setActiveStage("dispatch");
-      await new Promise((r) => setTimeout(r, 400));
-      setActiveStage(null);
-      setUploadState("complete");
-      event.target.value = "";
-    } catch (error) {
-      console.error("API Error:", error);
-      // Server responded with an error (e.g. unsupported format, clip too long) —
-      // surface the real reason; otherwise it is a connectivity problem.
-      setApiError(isApiError(error) ? error.message : null);
-      // Fallback: show sample response
-      await new Promise((r) => setTimeout(r, 500));
-      setApiResponse(sampleResponse);
-      setIsFallback(true);
-      setActiveStage("dispatch");
-      await new Promise((r) => setTimeout(r, 400));
-      setActiveStage(null);
-      setUploadState("complete");
-    }
+    await new Promise((r) => setTimeout(r, 400));
+    setActiveStage(null);
+    setUploadState("complete");
+    event.target.value = "";
   };
 
   const resetDemo = () => {
@@ -421,8 +241,6 @@ const DemoPage = () => {
               >
                 {uploadState === "idle"
                   ? "AWAITING_INPUT"
-                  : uploadState === "uploading"
-                  ? "UPLOADING..."
                   : uploadState === "processing"
                   ? `${activeStage?.toUpperCase()}_ACTIVE`
                   : "COMPLETE"}
@@ -442,20 +260,13 @@ const DemoPage = () => {
             >
               <AlertCircle className={`h-4 w-4 ${apiError ? "stroke-red-500" : "stroke-orange-500"}`} />
               <AlertTitle>
-                {apiError ? (isFallback ? "API Rejected Request" : "Invalid File") : "Local API Offline"}
+                {apiError ? (isFallback ? "API Server Error" : "Invalid File") : "API Unreachable"}
               </AlertTitle>
               <AlertDescription>
                 {isFallback ? (
-                  apiError ? (
-                    <>
-                      {apiError} Displaying <strong>Sample Response</strong> below for reference.
-                    </>
-                  ) : (
-                    <>
-                      Could not connect to {API_URL}. Displaying <strong>Sample Response</strong> with realistic
-                      pipeline output.
-                    </>
-                  )
+                  <>
+                    API unreachable or error occurred. Displaying <strong>Sample Response</strong> below for reference.
+                  </>
                 ) : (
                   <>{apiError}</>
                 )}
@@ -489,9 +300,7 @@ const DemoPage = () => {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{fileName}</p>
                         <p className="text-xs text-muted-foreground">
-                          {uploadState === "uploading"
-                            ? "Uploading..."
-                            : uploadState === "processing"
+                          {uploadState === "processing"
                             ? `Pipeline: ${activeStage?.toUpperCase()}`
                             : "Analysis complete"}
                         </p>
@@ -526,7 +335,7 @@ const DemoPage = () => {
                   <div className="space-y-2">
                     {[
                       { label: "Motion gate filters static frames", stage: "motion" },
-                      { label: "YOLO11m detects objects at conf ≥ 0.25", stage: "yolo" },
+                      { label: "YOLO11m detects objects", stage: "yolo" },
                       { label: "LangChain reasoning assesses severity", stage: "reasoning" },
                       { label: "Dispatch decision & authority alert", stage: "dispatch" },
                     ].map((step, i) => (
@@ -570,13 +379,6 @@ const DemoPage = () => {
                   <div className="flex flex-col items-center justify-center h-64 text-muted-foreground/30">
                     <Play className="w-12 h-12 mb-2" />
                     <p className="text-sm">Upload a video to begin analysis</p>
-                  </div>
-                )}
-
-                {uploadState === "uploading" && (
-                  <div className="flex flex-col items-center justify-center h-64">
-                    <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-                    <p className="text-sm text-muted-foreground font-mono">Uploading footage...</p>
                   </div>
                 )}
 
@@ -641,7 +443,7 @@ const DemoPage = () => {
                             </div>
                             {inc.objects && inc.objects.length > 0 && (
                               <div className="flex flex-wrap gap-1.5">
-                                {inc.objects.map((obj: DetectedObject, j: number) => (
+                                {inc.objects.map((obj, j: number) => (
                                   <span
                                     key={j}
                                     className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20 text-primary"

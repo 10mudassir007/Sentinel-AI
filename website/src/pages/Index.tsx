@@ -43,7 +43,7 @@ const Index = () => {
 
               <div className="grid sm:grid-cols-3 gap-6 max-w-2xl mx-auto mb-10">
                 {[
-                  { icon: Eye, label: "YOLO11m Detection", desc: "Object detection at conf ≥ 0.25" },
+                  { icon: Eye, label: "YOLO11m Detection", desc: "Real-time object detection" },
                   { icon: Brain, label: "LangChain Reasoning", desc: "Context-aware severity assessment" },
                   { icon: Phone, label: "Dispatch Decision", desc: "Authority alert with evidence" },
                 ].map((item, i) => (

@@ -152,7 +152,7 @@ COOLDOWN                      (re-alerts throttled per camera)
 | Platform | Browser (React 18 + Vite + Tailwind + shadcn/ui) | Android/iOS via Expo Go (React Native) |
 | Main job | Marketing site **plus** a `/demo` page that uploads a clip to the real backend | Field app: **record live footage** in 5 s chunks and stream each chunk to the backend, or upload a clip |
 | CNIC login | Auto-login with `VITE_DEMO_CNIC` for the demo | Manual CNIC login; role decides the UI (`user` vs `authoritative`/admin) |
-| `single_upload` | Always `1` (one-off demo clip → fresh tracker, alert on first gated frame) | `0` when recording chunks (state machine persists via `camera_id`), `1` for the demo upload screen |
+| `single_upload` | Always `1` (one-off demo clip → fresh tracker; alert once `ESCALATION_CONFIRMING_HITS` gated detections confirm) | `0` when recording chunks (state machine persists via `camera_id`), `1` for the demo upload screen |
 | Video source | File picked in the browser | `expo-camera` live recording or gallery file |
 | Extra metadata | Fixed demo `latitude`/`longitude`/`camera_id` | Real GPS (`expo-location`) + user-configurable `camera_id` |
 | Other endpoints | `GET /audio/{file}` (plays the voice alert) | `GET /audio/{file}`, `GET /incidents/latest`, `POST /incidents/{id}/pass` (admin feed), `GET /health` (connection check) |

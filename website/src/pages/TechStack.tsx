@@ -22,6 +22,7 @@ import {
 import { motion } from "framer-motion";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { containerVariants, itemVariants } from "@/lib/utils";
 
 const techCategories = [
   {
@@ -89,16 +90,6 @@ const pipelineFlow = [
   { name: "LangGraph", icon: GitBranch, color: "text-violet-400" },
   { name: "Dispatch", icon: Phone, color: "text-red-400" },
 ];
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.08 } },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
-};
 
 const TechnologyStack = () => {
   return (
@@ -222,7 +213,7 @@ const TechnologyStack = () => {
                   <h3 className="text-lg font-bold mb-2">Full Pipeline Flow</h3>
                   <p className="text-sm text-muted-foreground leading-relaxed">
                     Video upload triggers a motion-gated pipeline: frames with sufficient motion pass to <strong className="text-foreground">YOLO11m</strong> for object detection. 
-                    If an interest class (person, vehicle, weapon) is detected above the 0.25 confidence threshold, the frame enters a <strong className="text-foreground">per-camera escalation state machine</strong> 
+                    If an interest class (person, vehicle, weapon) is detected, the frame enters a <strong className="text-foreground">per-camera escalation state machine</strong> 
                     (IDLE &rarr; SUSPICIOUS &rarr; CONFIRMING &rarr; ALERT &rarr; COOLDOWN). Confirmed incidents are sent to the <strong className="text-foreground">Gemini 3.5 Flash</strong> vision LLM 
                     (with Groq fallback) for bilingual Urdu/English description, then to the <strong className="text-foreground">LangGraph agent</strong> which decides on 
                     <strong className="text-foreground"> Asterisk SIP dispatch</strong> calls to police, ambulance, or fire services with TTS-generated voice alerts.

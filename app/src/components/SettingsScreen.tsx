@@ -14,9 +14,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing, borderRadius, typography, shadows } from "../theme";
 import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
-import { loadSettings, saveSettings } from "../store/settings";
+import {
+  loadSettings,
+  saveSettings,
+  generateDeviceCameraId,
+} from "../store/settings";
 import { reconfigureClient } from "../api/client";
-import type { AppLanguage, AppSettings } from "../types";
+import { APP_VERSION } from "../constants";
+import type { AppLanguage } from "../types";
 
 interface Props {
   onLogout: () => void;
@@ -55,10 +60,12 @@ export default function SettingsScreen({ onLogout }: Props) {
       1000,
       Math.min(30000, parseInt(pollingSec, 10) * 1000 || 4000)
     );
-    const camId = cameraId.trim() || "mobile-cam-001";
+    // Blank camera id gets a fresh per-install identifier so devices never
+    // collide on the backend's per-source queue under one shared default.
+    const camId = cameraId.trim() || generateDeviceCameraId();
 
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
-      Alert.alert(t("error"), "Backend URL must start with http:// or https://");
+      Alert.alert(t("error"), t("invalid_url"));
       return;
     }
 
@@ -73,7 +80,7 @@ export default function SettingsScreen({ onLogout }: Props) {
     setLanguage(selectedLang);
     reconfigureClient(url);
     resetChanged();
-    Alert.alert(t("ok"), "Settings saved. Changes apply immediately.");
+    Alert.alert(t("ok"), t("settings_saved"));
   };
 
   const handleLogout = () => {
@@ -254,7 +261,7 @@ export default function SettingsScreen({ onLogout }: Props) {
             <Text
               style={[styles.inputHint, isRtl && { textAlign: "right" }]}
             >
-              Range: 1-30 seconds
+              {t("polling_range")}
             </Text>
           </View>
         )}
@@ -282,7 +289,9 @@ export default function SettingsScreen({ onLogout }: Props) {
           <Text style={styles.logoutBtnText}>{t("logout")}</Text>
         </TouchableOpacity>
 
-        <Text style={styles.versionText}>Sentinel AI Mobile v2.0.0</Text>
+        <Text style={styles.versionText}>
+          {t("app_name")} Mobile v{APP_VERSION}
+        </Text>
       </ScrollView>
     </View>
   );

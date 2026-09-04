@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 _path = Path(INCIDENTS_FILE)
 
+# Retention cap: at most this many records are kept; the oldest are pruned on
+# write so the store cannot grow without bound (a warning is logged whenever
+# pruning happens). Incidents beyond this cap are intentionally dropped.
+_MAX_RECORDS = 5000
+
 
 def _load() -> list[dict]:
     """Read all records; a missing or corrupt file starts empty (never crashes)."""
@@ -41,6 +46,14 @@ def _load() -> list[dict]:
 
 def _save(records: list[dict]) -> None:
     """Write atomically so a crash never leaves a half-written JSON file."""
+    if len(records) > _MAX_RECORDS:
+        pruned = len(records) - _MAX_RECORDS
+        records = records[-_MAX_RECORDS:]
+        logger.warning(
+            "Incident store exceeded %d records; pruned the %d oldest",
+            _MAX_RECORDS,
+            pruned,
+        )
     _path.parent.mkdir(parents=True, exist_ok=True)
     tmp = _path.with_name(_path.name + ".tmp")
     try:
@@ -66,13 +79,18 @@ def add_incident(record: dict) -> dict:
     return incident
 
 
-def list_incidents(status: str | None = None) -> list[dict]:
-    """Return stored incidents (newest first), filtered by status when given."""
+def list_incidents(status: str | None = None, max_results: int = 0) -> list[dict]:
+    """Return stored incidents (newest first), filtered by status when given.
+
+    max_results caps the returned list (0 = no cap).
+    """
     with _lock:
         records = _load()
     if status is not None:
         records = [r for r in records if r.get("status") == status]
     records.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+    if max_results > 0:
+        records = records[:max_results]
     return records
 
 

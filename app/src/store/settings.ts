@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { AppLanguage, AppSettings } from "../types";
+import type { AppSettings } from "../types";
 
 const SETTINGS_KEY = "sentinel_app_settings";
 
@@ -10,26 +10,62 @@ const SETTINGS_KEY = "sentinel_app_settings";
 export const DEFAULT_API_URL: string =
   process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8754";
 
+/** Old hardcoded default that every install used to share. */
+const LEGACY_DEFAULT_CAMERA_ID = "mobile-cam-001";
+
 const DEFAULT_SETTINGS: AppSettings = {
   language: "en",
   backendUrl: DEFAULT_API_URL,
   pollingIntervalMs: 4000,
-  cameraId: "mobile-cam-001",
-  shareLocation: true,
+  // Empty means "not assigned yet" — loadSettings() generates and persists a
+  // per-install unique id so two phones never share one backend queue key.
+  cameraId: "",
+  // Privacy: GPS is opt-in; the user enables it in Settings.
+  shareLocation: false,
 };
 
-/** Load persisted settings, falling back to defaults for missing keys. */
-export async function loadSettings(): Promise<AppSettings> {
+/**
+ * Generate a per-install camera identifier. Collisions across installs are
+ * what previously made every phone share the backend's per-camera queue.
+ */
+export function generateDeviceCameraId(): string {
+  return `mobile-cam-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
+
+// Settings are read often (each upload, each poll). Cache the parsed promise
+// so concurrent callers cannot each generate a different camera id; the cache
+// is refreshed whenever saveSettings() writes new values.
+let cachedSettings: Promise<AppSettings> | null = null;
+
+async function readSettings(): Promise<AppSettings> {
   try {
     const raw = await AsyncStorage.getItem(SETTINGS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<AppSettings>;
-      return { ...DEFAULT_SETTINGS, ...parsed };
+    const parsed: Partial<AppSettings> = raw
+      ? (JSON.parse(raw) as Partial<AppSettings>)
+      : {};
+    let cameraId = parsed.cameraId;
+    if (!cameraId || cameraId === LEGACY_DEFAULT_CAMERA_ID) {
+      // First run (or legacy install): assign a unique id and persist it so
+      // every subsequent read returns the same value.
+      cameraId = generateDeviceCameraId();
+      const merged = { ...DEFAULT_SETTINGS, ...parsed, cameraId };
+      await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(merged));
+      return merged;
     }
+    return { ...DEFAULT_SETTINGS, ...parsed };
   } catch {
-    // Corrupt or missing — return defaults
+    // Corrupt/missing storage — fall back to defaults with a fresh id so the
+    // session still has a consistent camera identity.
+    return { ...DEFAULT_SETTINGS, cameraId: generateDeviceCameraId() };
   }
-  return { ...DEFAULT_SETTINGS };
+}
+
+/** Load persisted settings, falling back to defaults for missing keys. */
+export function loadSettings(): Promise<AppSettings> {
+  cachedSettings ??= readSettings();
+  return cachedSettings;
 }
 
 /** Persist settings. */
@@ -39,6 +75,7 @@ export async function saveSettings(
   const current = await loadSettings();
   const merged: AppSettings = { ...current, ...partial };
   await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(merged));
+  cachedSettings = Promise.resolve(merged);
   return merged;
 }
 

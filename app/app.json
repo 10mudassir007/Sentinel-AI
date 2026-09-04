@@ -17,7 +17,10 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Camera is used to record video footage for AI-based emergency detection.",
         "NSPhotoLibraryUsageDescription": "Photo library access is used to upload demo videos for analysis.",
-        "NSMicrophoneUsageDescription": "Microphone is used during video recording."
+        "NSMicrophoneUsageDescription": "Microphone is used during video recording.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
       }
     },
     "android": {
@@ -53,6 +56,20 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "Your location is sent along with emergency video footage to help responders reach you faster."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true
         }
       ],
       "expo-audio"

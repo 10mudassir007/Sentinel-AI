@@ -19,6 +19,7 @@ import { useAuth } from "../context/AuthContext";
 import { login } from "../api/endpoints";
 import { reconfigureClient } from "../api/client";
 import { loadSettings } from "../store/settings";
+import { APP_VERSION } from "../constants";
 import { AxiosError } from "axios";
 
 interface Props {
@@ -143,7 +144,9 @@ export default function LoginScreen({ onLoginSuccess }: Props) {
         <Animated.View style={[styles.disclaimerCard, { opacity: fadeAnim }]}>
           <View style={styles.disclaimerIconRow}>
             <Text style={styles.disclaimerIcon}>⚖️</Text>
-            <Text style={styles.disclaimerTitle}>Authorized Use Only</Text>
+            <Text style={styles.disclaimerTitle}>
+              {t("authorized_use_only")}
+            </Text>
           </View>
           <Text style={styles.disclaimerText}>{t("legal_disclaimer")}</Text>
           <View style={styles.disclaimerDivider} />
@@ -200,7 +203,9 @@ export default function LoginScreen({ onLoginSuccess }: Props) {
         </View>
       </ScrollView>
 
-      <Text style={styles.version}>Sentinel AI v2.0.0</Text>
+      <Text style={styles.version}>
+        {t("app_name")} v{APP_VERSION}
+      </Text>
     </KeyboardAvoidingView>
   );
 }

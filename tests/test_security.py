@@ -1,6 +1,5 @@
 """Tests for core.security: CNIC normalization, Argon2 hashing, sessions, client IP."""
 
-import time
 from unittest.mock import patch
 
 import pytest
@@ -12,7 +11,6 @@ from core.security import (
     hash_cnic,
     normalize_cnic,
 )
-
 
 # --- normalize_cnic ---------------------------------------------------
 

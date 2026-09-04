@@ -58,7 +58,7 @@ function AdminNavigator({ onLogout }: { onLogout: () => void }) {
 }
 
 export default function AppNavigator() {
-  const { userType, isLoading, signOut } = useAuth();
+  const { userType, isLoading } = useAuth();
   const [showLanguageSelect, setShowLanguageSelect] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [isCheckingFirstLaunch, setIsCheckingFirstLaunch] = useState(true);

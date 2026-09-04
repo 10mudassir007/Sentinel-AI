@@ -18,6 +18,7 @@ export const translations: Translations = {
       "This application is for authorized emergency surveillance and detection purposes only. Unauthorized access or misuse may result in legal action.",
     login_security_note:
       "By logging in, you acknowledge and consent to monitoring. All access is logged and audited.",
+    authorized_use_only: "Authorized Use Only",
     settings: "Settings",
     language: "Language",
     backend_url: "Backend URL",
@@ -66,6 +67,59 @@ export const translations: Translations = {
     location_fetching: "Getting location...",
     location_unavailable: "Location unavailable. Video will be sent without coordinates.",
     save: "Save Settings",
+    // Recording / permission screens
+    camera_required: "Camera Required",
+    camera_permission_text:
+      "Camera permission is required to record video for AI analysis.",
+    grant_permission: "Grant Permission",
+    live: "Live",
+    analyzing_chunks: "Analyzing {0} chunks...",
+    analyzing_pipeline: "Analyzing with AI detection pipeline...",
+    permission_required: "Permission Required",
+    gallery_permission_text:
+      "Gallery access is needed to select demo videos.",
+    upload_desc:
+      "Choose a pre-recorded video from your gallery to test the Sentinel AI detection pipeline.",
+    single_upload_note: "A single video upload with GPS coordinates attached.",
+    supported_formats: "Supported: MP4, MOV, AVI",
+    // Result screen
+    per_chunk_breakdown: "Per-Chunk Breakdown",
+    chunk_label: "Chunk {0}",
+    incident_one: "incident",
+    incident_many: "incidents",
+    details: "Details",
+    file: "File",
+    camera: "Camera",
+    location: "Location",
+    na: "N/A",
+    play: "Play",
+    pause: "Pause",
+    // Admin screen
+    pending: "pending",
+    audio: "Audio",
+    pass_failed: "Failed to mark incident as processed.",
+    // Settings screen
+    invalid_url: "Backend URL must start with http:// or https://",
+    settings_saved: "Settings saved. Changes apply immediately.",
+    polling_range: "Range: 1-30 seconds",
+    // Home screen
+    detection_modes: "Detection Modes",
+    detection_modes_desc:
+      "Choose how you want to capture footage for AI analysis.",
+    record_desc:
+      "Live camera recording in 5s chunks with GPS coordinates and camera ID metadata.",
+    gps: "GPS",
+    chunks_5s: "5s Chunks",
+    demo_upload_desc:
+      "Upload a single pre-recorded file from your gallery for demonstration or testing.",
+    single_file: "Single File",
+    // Upload errors
+    upload_failed_msg: "Video analysis failed. Please try again.",
+    video_too_long:
+      "Video exceeds the maximum allowed duration.",
+    video_too_large: "Video exceeds the server size limit.",
+    server_busy_msg:
+      "Server is busy processing another video. Please try again shortly.",
   },
   ur: {
     app_name: "سینٹینل AI",
@@ -84,6 +138,7 @@ export const translations: Translations = {
       "یہ ایپلیکیشن صرف مجاز ایمرجنسی نگرانی اور پتہ لگانے کے مقاصد کے لیے ہے۔ غیر مجاز رسائی یا غلط استعمال قانونی کارروائی کا سبب بن سکتا ہے۔",
     login_security_note:
       "لاگ ان کر کے، آپ مانٹرنگ کو تسلیم اور رضامند ہوتے ہیں۔ تمام رسائی لاگ اور آڈٹ کی جاتی ہے۔",
+    authorized_use_only: "صرف مجاز استعمال",
     settings: "ترتیبات",
     language: "زبان",
     backend_url: "بیک اینڈ URL",
@@ -132,5 +187,54 @@ export const translations: Translations = {
     location_fetching: "مقام حاصل ہو رہا ہے...",
     location_unavailable: "مقام دستیاب نہیں۔ ویڈیو بغیر کوآرڈینیٹ کے بھیجی جائے گی۔",
     save: "ترتیبات محفوظ کریں",
+    // Recording / permission screens
+    camera_required: "کیمرہ درکار ہے",
+    camera_permission_text:
+      "ویڈیو ریکارڈنگ کے لیے کیمرے کی اجازت ضروری ہے۔",
+    grant_permission: "اجازت دیں",
+    live: "لائیو",
+    analyzing_chunks: "{0} حصوں کا تجزیہ ہو رہا ہے...",
+    analyzing_pipeline: "AI پتہ لگانے کے نظام کے ساتھ تجزیہ ہو رہا ہے...",
+    permission_required: "اجازت درکار ہے",
+    gallery_permission_text: "ڈیمو ویڈیوز منتخب کرنے کے لیے گیلری تک رسائی درکار ہے۔",
+    upload_desc:
+      "سینٹینل AI پتہ لگانے کے نظام کو جانچنے کے لیے اپنی گیلری سے پہلے سے ریکارڈ شدہ ویڈیو منتخب کریں۔",
+    single_upload_note: "GPS کوآرڈینیٹ کے ساتھ ایک ویڈیو اپ لوڈ۔",
+    supported_formats: "معاونت شدہ: MP4، MOV، AVI",
+    // Result screen
+    per_chunk_breakdown: "حصہ وار تفصیل",
+    chunk_label: "حصہ {0}",
+    incident_one: "واقعہ",
+    incident_many: "واقعات",
+    details: "تفصیلات",
+    file: "فائل",
+    camera: "کیمرہ",
+    location: "مقام",
+    na: "N/A",
+    play: "چلائیں",
+    pause: "روکیں",
+    // Admin screen
+    pending: "زیر التوا",
+    audio: "آڈیو",
+    pass_failed: "واقعے کو کارروائی شدہ نشان زد کرنے میں ناکامی ہوئی۔",
+    // Settings screen
+    invalid_url: "بیک اینڈ URL کا آغاز http:// یا https:// سے ہونا چاہیے",
+    settings_saved: "ترتیبات محفوظ ہو گئیں۔ تبدیلیاں فوری طور پر لاگو ہوں گی۔",
+    polling_range: "حد: 1-30 سیکنڈ",
+    // Home screen
+    detection_modes: "پتہ لگانے کے طریقے",
+    detection_modes_desc: "AI تجزیہ کے لیے فوٹیج ریکارڈ کرنے کا طریقہ منتخب کریں۔",
+    record_desc:
+      "GPS کوآرڈینیٹ اور کیمرہ ID میٹا ڈیٹا کے ساتھ 5 سیکنڈ کے حصوں میں لائیو کیمرہ ریکارڈنگ۔",
+    gps: "GPS",
+    chunks_5s: "5 سیکنڈ کے حصے",
+    demo_upload_desc:
+      "ڈیمو یا جانچ کے لیے اپنی گیلری سے ایک پہلے سے ریکارڈ شدہ فائل اپ لوڈ کریں۔",
+    single_file: "ایک فائل",
+    // Upload errors
+    upload_failed_msg: "ویڈیو کا تجزیہ ناکام رہا۔ براہ کرم دوبارہ کوشش کریں۔",
+    video_too_long: "ویڈیو زیادہ سے زیادہ مدت سے تجاوز کر گئی۔",
+    video_too_large: "ویڈیو سرور کے سائز کی حد سے تجاوز کر گئی۔",
+    server_busy_msg: "سرور مصروف ہے۔ براہ کرم تھوڑی دیر بعد دوبارہ کوشش کریں۔",
   },
 };

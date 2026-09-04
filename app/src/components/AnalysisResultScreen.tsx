@@ -58,7 +58,13 @@ export default function AnalysisResultScreen({ navigation, route }: Props) {
         if (!cancelled) setLocalAudioUri(uri);
       })
       .catch((err) => {
-        console.error("Audio download failed:", err);
+        // Log only safe details — the full AxiosError would include the
+        // Authorization header in its request config.
+        console.error(
+          `Audio download failed: ${
+            err instanceof Error ? err.message : "unknown error"
+          }`
+        );
         if (!cancelled) setAudioFailed(true);
       });
 
@@ -179,7 +185,7 @@ export default function AnalysisResultScreen({ navigation, route }: Props) {
                 <ActivityIndicator color={colors.foreground} />
               ) : (
                 <Text style={styles.playBtnText}>
-                  {isPlaying ? "⏸ Pause" : "▶ Play"}
+                  {isPlaying ? `⏸ ${t("pause")}` : `▶ ${t("play")}`}
                 </Text>
               )}
             </TouchableOpacity>
@@ -190,14 +196,19 @@ export default function AnalysisResultScreen({ navigation, route }: Props) {
         {isMultiChunk && result.results.length > 0 && (
           <View style={styles.glassCard}>
             <Text style={styles.chunksSectionTitle}>
-              Per-Chunk Breakdown
+              {t("per_chunk_breakdown")}
             </Text>
             {result.results.map((r, i) => (
               <View key={i} style={styles.chunkRow}>
-                <Text style={styles.chunkIndex}>Chunk {i + 1}</Text>
+                <Text style={styles.chunkIndex}>
+                  {t("chunk_label").replace("{0}", String(i + 1))}
+                </Text>
                 <View style={styles.chunkMeta}>
                   <Text style={styles.chunkIncidents}>
-                    {r.incidents_detected} incident{r.incidents_detected !== 1 ? "s" : ""}
+                    {r.incidents_detected}{" "}
+                    {r.incidents_detected === 1
+                      ? t("incident_one")
+                      : t("incident_many")}
                   </Text>
                   {r.camera_id && (
                     <Text style={styles.chunkCamera}>📷 {r.camera_id}</Text>
@@ -211,24 +222,24 @@ export default function AnalysisResultScreen({ navigation, route }: Props) {
         {/* Single result metadata */}
         {!isMultiChunk && primaryResult && (
           <View style={styles.glassCard}>
-            <Text style={styles.chunksSectionTitle}>Details</Text>
+            <Text style={styles.chunksSectionTitle}>{t("details")}</Text>
             <View style={styles.metaRow}>
-              <Text style={styles.metaLabel}>File</Text>
+              <Text style={styles.metaLabel}>{t("file")}</Text>
               <Text style={styles.metaValue}>{primaryResult.filename}</Text>
             </View>
             <View style={styles.metaRow}>
-              <Text style={styles.metaLabel}>Camera</Text>
+              <Text style={styles.metaLabel}>{t("camera")}</Text>
               <Text style={styles.metaValue}>
-                {primaryResult.camera_id ?? "N/A"}
+                {primaryResult.camera_id ?? t("na")}
               </Text>
             </View>
             <View style={styles.metaRow}>
-              <Text style={styles.metaLabel}>Location</Text>
+              <Text style={styles.metaLabel}>{t("location")}</Text>
               <Text style={styles.metaValue}>
                 {primaryResult.location?.display_name
                   ? String(primaryResult.location.display_name).slice(0, 40) +
                     "..."
-                  : "N/A"}
+                  : t("na")}
               </Text>
             </View>
           </View>

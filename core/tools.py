@@ -19,6 +19,7 @@ import contextvars
 import json
 import logging
 import subprocess
+import threading
 import time
 import uuid
 import wave
@@ -97,6 +98,7 @@ _dispatch_languages_var: contextvars.ContextVar[list[str] | None] = contextvars.
 # services/video_service.py before the agent runs so tools can embed it in
 # the voice message without relying on the LLM to pass it through.
 
+
 def set_dispatch_context(location: dict | None, languages: list[str] | None = None) -> None:
     """Stash the request location and requested languages for tools in this request.
 
@@ -117,9 +119,7 @@ def _dispatch_context() -> dict | None:
     return _dispatch_context_var.get()
 
 
-def _alert_script(
-    service: str, incident: str, urdu_incident: str, location_label: str = ""
-) -> str:
+def _alert_script(service: str, incident: str, urdu_incident: str, location_label: str = "") -> str:
     """Build a short spoken alert, preferring Urdu for local contacts."""
     if urdu_incident:
         if location_label:
@@ -163,26 +163,66 @@ def _synth_elevenlabs(script: str, out_path: Path) -> None:
     _write_pcm_wav(out_path, b"".join(audio))
 
 
+def _run_coroutine(coro):
+    """Run a coroutine from a worker thread.
+
+    Dispatch tools execute in LangGraph worker threads where asyncio.run()
+    is safe. If one is ever invoked from a thread with a live event loop,
+    run the coroutine on a fresh thread instead of raising RuntimeError.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    # A loop is running in this thread: execute the coroutine on a fresh
+    # daemon thread and re-raise any exception in the caller's thread.
+    outcome: list = []
+
+    def _runner() -> None:
+        try:
+            outcome.append(asyncio.run(coro))
+        except BaseException as exc:
+            outcome.append(exc)
+
+    runner = threading.Thread(target=_runner, daemon=True)
+    runner.start()
+    runner.join()
+    if not outcome:
+        raise RuntimeError("async helper thread produced no result")
+    value = outcome[0]
+    if isinstance(value, BaseException):
+        raise value
+    return value
+
+
 def _synth_edge_tts(script: str, lang: str, out_path: Path) -> None:
     """Fallback TTS: edge-tts (fast, free, Urdu voices); mp3 -> WAV via ffmpeg."""
     import edge_tts  # lazy import so tests can stub it
 
     async def _stream() -> bytes:
         communicate = edge_tts.Communicate(script, voice=_EDGE_TTS_VOICES[lang])
-        chunks = [
-            chunk["data"]
-            async for chunk in communicate.stream()
-            if chunk["type"] == "audio"
-        ]
+        chunks = [chunk["data"] async for chunk in communicate.stream() if chunk["type"] == "audio"]
         return b"".join(chunks)
 
-    mp3 = asyncio.run(_stream())
+    mp3 = _run_coroutine(_stream())
     try:
         result = subprocess.run(
             [
-                "ffmpeg", "-hide_banner", "-loglevel", "error",
-                "-i", "pipe:0", "-f", "wav", "-ac", "1", "-ar", "16000",
-                "-y", str(out_path),
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                "pipe:0",
+                "-f",
+                "wav",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-y",
+                str(out_path),
             ],
             input=mp3,
             capture_output=True,
@@ -216,7 +256,8 @@ def _synthesize_voice_message(script: str, lang: str) -> dict:
         except Exception as exc:
             logger.warning(
                 "ElevenLabs TTS failed (%s: %s), falling back to edge-tts",
-                exc.__class__.__name__, exc,
+                exc.__class__.__name__,
+                exc,
             )
             _synth_edge_tts(script, lang, api_path)
     else:
@@ -242,9 +283,7 @@ def _prune_old_audio(api_dir: Path, keep_name: str) -> None:
     file just written (it may already be referenced by an in-flight result).
     """
     try:
-        files = sorted(
-            api_dir.glob("alert-*.wav"), key=lambda p: p.stat().st_mtime
-        )
+        files = sorted(api_dir.glob("alert-*.wav"), key=lambda p: p.stat().st_mtime)
     except OSError:
         return
     if len(files) <= _AUDIO_KEEP_MAX:
@@ -303,9 +342,7 @@ def _place_call_via_sip(destination: str, audio_name: str) -> dict:
             secret=AMI_SECRET,
         )
         try:
-            await asyncio.wait_for(
-                manager.connect(), timeout=_AMI_CONNECT_TIMEOUT_S
-            )
+            await asyncio.wait_for(manager.connect(), timeout=_AMI_CONNECT_TIMEOUT_S)
             response = await _originate_call(manager, destination, audio_name)
             status = _ami_status(response)
             return {
@@ -319,7 +356,7 @@ def _place_call_via_sip(destination: str, audio_name: str) -> dict:
                 pass
 
     try:
-        return asyncio.run(_run())
+        return _run_coroutine(_run())
     except Exception as exc:
         logger.warning("SIP dispatch failed for %s: %s", destination, exc)
         return {
@@ -389,8 +426,12 @@ def _dispatch(service: str, incident: str, urdu_incident: str = "") -> str:
     lang = "ur" if urdu else "en"
     script = _alert_script(service, incident, urdu, location_label)
     logger.info(
-        "Dispatch audio: lang=%s requested=%s urdu_provided=%s script=%r",
-        lang, list(languages), bool(urdu_incident), script[:120],
+        "Dispatch audio: service=%s lang=%s requested=%s urdu_provided=%s script_chars=%d",
+        service,
+        lang,
+        list(languages),
+        bool(urdu_incident),
+        len(script),
     )
     try:
         result["audio"] = _synthesize_voice_message(script, lang)

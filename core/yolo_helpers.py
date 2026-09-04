@@ -47,19 +47,15 @@ def detect_objects(frame: np.ndarray, conf_threshold: float = YOLO_CONF_THRESHOL
             continue
 
         x1, y1, x2, y2 = map(int, box.xyxy[0])
-        detections.append({
-            "label": label,
-            "confidence": round(conf, 2),
-            "bbox": [x1, y1, x2, y2]
-        })
+        detections.append({"label": label, "confidence": round(conf, 2), "bbox": [x1, y1, x2, y2]})
     return detections
+
 
 def draw_detections(frame: np.ndarray, detections: list) -> np.ndarray:
     annotated = frame.copy()
     for obj in detections:
         x1, y1, x2, y2 = obj["bbox"]
-        label = f'{obj["label"]} ({obj["confidence"]})'
+        label = f"{obj['label']} ({obj['confidence']})"
         cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(annotated, label, (x1, y1 - 8),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        cv2.putText(annotated, label, (x1, y1 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
     return annotated

@@ -15,6 +15,7 @@ import { setAudioModeAsync } from "expo-audio";
 import { colors, spacing, borderRadius, typography, shadows } from "../theme";
 import { useI18n } from "../context/I18nContext";
 import { analyzeVideo, getLocationCoords } from "../api/endpoints";
+import { getErrorStatus } from "../api/client";
 import { loadSettings } from "../store/settings";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type {
@@ -43,14 +44,37 @@ export default function RecordVideoScreen({ navigation }: Props) {
   const isRecordingRef = useRef(false);
   const chunkIndexRef = useRef(0);
   const resultsRef = useRef<VideoAnalysisResult[]>([]);
-  const chunkCountRef = useRef(0);
   const locationRef = useRef<{ latitude: string; longitude: string } | null>(
     null
   );
-  const cameraIdRef = useRef("mobile-cam-001");
+  // Filled from settings before the first chunk; empty until then.
+  const cameraIdRef = useRef("");
   const uploadCountRef = useRef(0);
+  const inFlightRef = useRef(0);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
   const [uploadCount, setUploadCount] = useState(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  // Stop recording, timers and camera work when the screen unmounts so the
+  // chunk loop can never keep running in the background after leaving it.
+  useEffect(() => {
+    const camera = cameraRef.current;
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      isRecordingRef.current = false;
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      try {
+        camera?.stopRecording();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
 
   // Pulse animation for the recording indicator
   useEffect(() => {
@@ -93,11 +117,12 @@ export default function RecordVideoScreen({ navigation }: Props) {
       const coords = await getLocationCoords();
       locationRef.current = coords;
     })();
-  }, [permission]);
+  }, [permission, requestPermission]);
 
   /** Upload a single chunk and accumulate the result */
   const uploadChunk = useCallback(
     async (uri: string, chunkIdx: number): Promise<void> => {
+      inFlightRef.current++;
       try {
         const result = await analyzeVideo({
           fileUri: uri,
@@ -109,17 +134,25 @@ export default function RecordVideoScreen({ navigation }: Props) {
           singleUpload: "0", // chunked mode
         });
         resultsRef.current.push(result);
-        chunkCountRef.current++;
         uploadCountRef.current++;
-        setUploadCount(uploadCountRef.current);
+        if (mountedRef.current) setUploadCount(uploadCountRef.current);
       } catch (err) {
-        console.error(`Chunk ${chunkIdx} upload failed:`, err);
+        // Log only safe details — the full AxiosError would include the
+        // Authorization header (Bearer token) in its config.
+        const status = getErrorStatus(err);
+        console.error(
+          `Chunk ${chunkIdx} upload failed: ${
+            status !== undefined ? `server returned ${status}` : "network error"
+          }`
+        );
+      } finally {
+        inFlightRef.current--;
       }
     },
     []
   );
 
-  /** Record one 5-second chunk and recurse */
+  /** Record one 5-second chunk, upload it, then recurse */
   const recordNextChunk = useCallback(async () => {
     if (!isRecordingRef.current) return;
 
@@ -135,19 +168,31 @@ export default function RecordVideoScreen({ navigation }: Props) {
       if (!isRecordingRef.current) return;
 
       if (video?.uri) {
-        // Upload this chunk in background
-        uploadChunk(video.uri, currentChunk);
+        // Upload this chunk and WAIT for its analysis to settle before
+        // recording the next one, so uploads never pile up against the
+        // backend's per-source processing queue and results are never lost.
+        await uploadChunk(video.uri, currentChunk);
 
         // Small delay to let camera reset for next chunk
-        setTimeout(() => {
-          recordNextChunk();
-        }, 300);
+        if (isRecordingRef.current) {
+          timerRef.current = setTimeout(() => {
+            timerRef.current = null;
+            recordNextChunk();
+          }, 300);
+        }
       }
     } catch (err) {
-      console.error("Chunk recording failed:", err);
+      console.error(
+        `Chunk ${currentChunk} recording failed: ${
+          err instanceof Error ? err.message : "unknown error"
+        }`
+      );
       // Try next chunk anyway
       if (isRecordingRef.current) {
-        setTimeout(() => recordNextChunk(), 500);
+        timerRef.current = setTimeout(() => {
+          timerRef.current = null;
+          recordNextChunk();
+        }, 500);
       }
     }
   }, [uploadChunk]);
@@ -155,13 +200,15 @@ export default function RecordVideoScreen({ navigation }: Props) {
   const handleStartRecording = async () => {
     resultsRef.current = [];
     chunkIndexRef.current = 0;
-    chunkCountRef.current = 0;
     uploadCountRef.current = 0;
+    inFlightRef.current = 0;
     setUploadCount(0);
     isRecordingRef.current = true;
     setIsRecording(true);
 
-    // Re-fetch location in case it changed
+    // Re-read camera id and location in case they changed in Settings
+    const settings = await loadSettings();
+    cameraIdRef.current = settings.cameraId;
     const coords = await getLocationCoords();
     locationRef.current = coords;
 
@@ -179,10 +226,18 @@ export default function RecordVideoScreen({ navigation }: Props) {
     } catch {
       // ignore
     }
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
 
-    // Wait a moment for any in-flight chunk to finish, then navigate
+    // Wait (bounded) for the in-flight chunk's analysis to settle so its
+    // result is included in the report instead of being silently dropped.
     setIsProcessingFinal(true);
-    await new Promise((r) => setTimeout(r, 1500));
+    const deadline = Date.now() + 30000;
+    while (inFlightRef.current > 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 250));
+    }
 
     // Build aggregated result from all chunks
     const allResults = resultsRef.current;
@@ -198,7 +253,9 @@ export default function RecordVideoScreen({ navigation }: Props) {
       lastAgentResponse: lastResult?.agent_response ?? null,
     };
 
-    navigation.replace("AnalysisResult", { result: aggregated });
+    if (mountedRef.current) {
+      navigation.replace("AnalysisResult", { result: aggregated });
+    }
   };
 
   if (!permission) {
@@ -220,15 +277,17 @@ export default function RecordVideoScreen({ navigation }: Props) {
       >
         <View style={styles.permissionCard}>
           <Text style={styles.permissionIcon}>🎥</Text>
-          <Text style={styles.permissionTitle}>Camera Required</Text>
+          <Text style={styles.permissionTitle}>{t("camera_required")}</Text>
           <Text style={styles.permissionText}>
-            Camera permission is required to record video for AI analysis.
+            {t("camera_permission_text")}
           </Text>
           <TouchableOpacity
             style={styles.permissionBtn}
             onPress={requestPermission}
           >
-            <Text style={styles.permissionBtnText}>Grant Permission</Text>
+            <Text style={styles.permissionBtnText}>
+              {t("grant_permission")}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -293,7 +352,7 @@ export default function RecordVideoScreen({ navigation }: Props) {
         {/* Location badge */}
         {locationRef.current && (
           <View style={styles.locationBadge}>
-            <Text style={styles.locationBadgeText}>📍 Live</Text>
+            <Text style={styles.locationBadgeText}>📍 {t("live")}</Text>
           </View>
         )}
 
@@ -318,7 +377,7 @@ export default function RecordVideoScreen({ navigation }: Props) {
                 )}
               </Text>
               <Text style={styles.processingHint}>
-                Analyzing {uploadCount} chunks...
+                {t("analyzing_chunks").replace("{0}", String(uploadCount))}
               </Text>
             </View>
           </View>

@@ -1,5 +1,6 @@
 import logging
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -63,10 +64,11 @@ MAX_FRAMES_TO_ANALYZE = _env_int("MAX_FRAMES_TO_ANALYZE", 30, minimum=1)
 # Runs on the stock COCO model - no custom training needed.
 
 # Weights file for the stock YOLO model.
-YOLO_MODEL_PATH = os.getenv("YOLO_MODEL_PATH", "yolo26n.pt")
+YOLO_MODEL_PATH = os.getenv("YOLO_MODEL_PATH", "yolo11m.pt")
 
 # Minimum detection confidence for a class to pass the gate.
-YOLO_CONF_THRESHOLD = _env_float("YOLO_CONF_THRESHOLD", 0.45)
+# Matches the 0.25 threshold documented on the website.
+YOLO_CONF_THRESHOLD = _env_float("YOLO_CONF_THRESHOLD", 0.25)
 
 
 # Comma-separated YOLO class names that justify escalating a frame to the LLM.
@@ -114,8 +116,13 @@ ESCALATION_COOLDOWN_S = _env_float("ESCALATION_COOLDOWN_S", 300.0, minimum=0.0)
 SUPPORTED_DESCRIPTION_LANGUAGES = ("en", "ur")
 
 
+def split_language_codes(raw: str) -> list[str]:
+    """Split a comma-separated language string into normalized codes."""
+    return [code.strip().lower() for code in raw.split(",") if code.strip()]
+
+
 def _parse_languages(raw: str) -> list[str]:
-    codes = [code.strip().lower() for code in raw.split(",") if code.strip()]
+    codes = split_language_codes(raw)
     if not codes or any(code not in SUPPORTED_DESCRIPTION_LANGUAGES for code in codes):
         logging.warning("Invalid DESCRIPTION_LANGUAGES value %r, using default 'en,ur'", raw)
         return ["en", "ur"]
@@ -171,9 +178,7 @@ ELEVENLABS_MODEL_ID = os.getenv("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
 
 # Directory on the Asterisk host the dialplan plays alert audio from
 # (the API writes alert-*.wav here and passes ALERT_FILE to the call).
-ASTERISK_SOUNDS_DIR = os.getenv(
-    "ASTERISK_SOUNDS_DIR", "/var/lib/asterisk/sounds/sentinel/"
-)
+ASTERISK_SOUNDS_DIR = os.getenv("ASTERISK_SOUNDS_DIR", "/var/lib/asterisk/sounds/sentinel/")
 
 # Directory where generated audio is kept for the GET /audio/{file} endpoint.
 AUDIO_OUTPUT_DIR = os.getenv("AUDIO_OUTPUT_DIR", "generated_audio")

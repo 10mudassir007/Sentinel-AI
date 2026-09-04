@@ -17,8 +17,9 @@ from core.config import (
     MAX_UPLOAD_SIZE,
     MAX_VIDEO_SECONDS,
     SUPPORTED_DESCRIPTION_LANGUAGES,
+    split_language_codes,
 )
-from core.security import client_ip, create_session, require_auth
+from core.security import client_ip, create_session, require_auth, require_role
 from services.geocode import reverse_geocode
 from services.incident_store import add_incident, list_incidents, set_status
 from services.video_service import analyze_video
@@ -35,20 +36,21 @@ class LoginRequest(BaseModel):
     cnic: str
 
 
-@router.post("/login")
+@router.post("/login", tags=["Authentication"])
 async def login_endpoint(request: LoginRequest) -> dict:
     """Exchange a valid CNIC for a bearer token used on every other endpoint."""
-    return create_session(request.cnic)
+    # Argon2id verification is CPU-bound; run it off the event loop so a login
+    # never stalls other requests.
+    return await run_in_threadpool(create_session, request.cnic)
 
 
 def _parse_language_param(raw: str) -> list[str]:
     """Parse the client-supplied language list; empty falls back to the server default."""
-    codes = [code.strip().lower() for code in raw.split(",") if code.strip()]
+    codes = split_language_codes(raw)
     if codes and any(code not in SUPPORTED_DESCRIPTION_LANGUAGES for code in codes):
         raise HTTPException(
             status_code=422,
-            detail="language must be one of: "
-            + ", ".join(SUPPORTED_DESCRIPTION_LANGUAGES),
+            detail="language must be one of: " + ", ".join(SUPPORTED_DESCRIPTION_LANGUAGES),
         )
     return codes or list(DESCRIPTION_LANGUAGES)
 
@@ -80,15 +82,11 @@ def _parse_coordinates(latitude: str, longitude: str) -> tuple[float, float] | N
     if not latitude and not longitude:
         return None
     if not latitude or not longitude:
-        raise HTTPException(
-            status_code=422, detail="Both latitude and longitude are required"
-        )
+        raise HTTPException(status_code=422, detail="Both latitude and longitude are required")
     try:
         lat, lon = float(latitude), float(longitude)
     except ValueError:
-        raise HTTPException(
-            status_code=422, detail="latitude and longitude must be numbers"
-        )
+        raise HTTPException(status_code=422, detail="latitude and longitude must be numbers")
     if not (-90.0 <= lat <= 90.0) or not (-180.0 <= lon <= 180.0):
         raise HTTPException(
             status_code=422,
@@ -125,6 +123,9 @@ _source_locks: dict[str, asyncio.Lock] = {}
 _source_locks_guard = threading.Lock()
 _MAX_QUEUED_SOURCES = 1024
 _MAX_SOURCE_KEY_LEN = 256
+# How long a request may wait for its per-source queue slot before failing
+# (guards against a stuck analysis wedging that source's queue forever).
+_QUEUE_ACQUIRE_TIMEOUT_S = 600.0
 
 
 def _source_key(camera_id: str, request: Request) -> str:
@@ -174,7 +175,7 @@ def _probe_duration(path: str) -> float | None:
         cap.release()
 
 
-@router.post("/analyze-video")
+@router.post("/analyze-video", tags=["Analysis"])
 async def analyze_video_endpoint(
     request: Request,
     file: UploadFile = File(...),
@@ -195,7 +196,9 @@ async def analyze_video_endpoint(
         )
 
     languages = _parse_language_param(language)
-    location = _resolve_location(latitude, longitude)
+    # Reverse geocoding is a blocking network call (Nominatim, 10s timeout);
+    # run it off the event loop so a slow geocoder never stalls other requests.
+    location = await run_in_threadpool(_resolve_location, latitude, longitude)
 
     # Queue key: an explicit camera_id wins; otherwise the client IP defines
     # the source so one-off uploads from the same client also serialize.
@@ -221,18 +224,25 @@ async def analyze_video_endpoint(
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "Video exceeds the maximum allowed duration of "
-                    f"{MAX_VIDEO_SECONDS:g} seconds"
+                    f"Video exceeds the maximum allowed duration of {MAX_VIDEO_SECONDS:g} seconds"
                 ),
             )
 
         # Per-source queue: the next clip from this source starts processing
-        # only after this one finished and its response was sent back.
+        # only after this one finished and its response was sent back. Waiting
+        # for the slot is bounded so a stuck analysis cannot wedge this
+        # source's queue forever.
         lock = _source_lock(source)
-        await lock.acquire()
+        try:
+            await asyncio.wait_for(lock.acquire(), timeout=_QUEUE_ACQUIRE_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=503, detail="Analysis queue is busy; try again shortly")
         try:
             video_analysis, agent_answer, dispatch = await run_in_threadpool(
-                analyze_video, tmp_path, languages=languages, location=location,
+                analyze_video,
+                tmp_path,
+                languages=languages,
+                location=location,
                 camera_id=camera_id or None,
                 single_upload=single_upload.lower() in ("1", "true", "yes"),
             )
@@ -287,29 +297,37 @@ async def analyze_video_endpoint(
             first_incident = (video_analysis.get("incidents") or [None])[0]
             llm_desc = (
                 (first_incident.get("llm_description") or [{}])[0].get("text")
-                if first_incident else None
+                if first_incident
+                else None
             )
-            add_incident({
-                "display_name": location.get("display_name") if location else None,
-                "llm_desc": llm_desc,
-                "agent_answer": agent_answer,
-                "audio_file": audio_file,
-            })
+            add_incident(
+                {
+                    "display_name": location.get("display_name") if location else None,
+                    "llm_desc": llm_desc,
+                    "agent_answer": agent_answer,
+                    "audio_file": audio_file,
+                }
+            )
         except Exception:
             logger.exception("Could not store incident record")
     return result
 
 
-@router.get("/incidents/latest")
-async def incidents_latest(_: None = Depends(require_auth)) -> dict:
-    """Return incidents still waiting for attention (status 'new'), newest first."""
-    return {"incidents": list_incidents(status="new")}
+@router.get("/incidents/latest", tags=["Incidents"])
+async def incidents_latest(
+    _: None = Depends(require_role("authoritative")),
+    limit: int = 0,
+) -> dict:
+    """Return incidents still waiting for attention (status 'new'), newest first.
+    Use ?limit= to cap the result list; omit for the store's built-in cap.
+    """
+    return {"incidents": list_incidents(status="new", max_results=limit)}
 
 
-@router.post("/incidents/{incident_id}/pass")
+@router.post("/incidents/{incident_id}/pass", tags=["Incidents"])
 async def incidents_pass(
     incident_id: str,
-    _: None = Depends(require_auth),
+    _: None = Depends(require_role("authoritative")),
 ) -> dict:
     """Mark an incident as handled (status -> "false")."""
     updated = set_status(incident_id, "false")
@@ -318,10 +336,8 @@ async def incidents_pass(
     return {"incident": updated}
 
 
-@router.get("/audio/{filename}")
-async def get_generated_audio(
-    filename: str, _: None = Depends(require_auth)
-):
+@router.get("/audio/{filename}", tags=["Audio"])
+async def get_generated_audio(filename: str, _: None = Depends(require_auth)):
     """Serve a generated voice message referenced by a dispatch result."""
     audio_dir = Path(AUDIO_OUTPUT_DIR).resolve()
     file_path = (audio_dir / filename).resolve()

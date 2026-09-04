@@ -38,7 +38,7 @@ ALERT = "ALERT"
 COOLDOWN = "COOLDOWN"
 
 # Actions returned by on_gated_detection().
-IGNORE = "ignore"   # state updated but nothing expensive runs
+IGNORE = "ignore"  # state updated but nothing expensive runs
 ANALYZE = "analyze"  # run the vision LLM (only on SUSPICIOUS -> CONFIRMING)
 ALERT_ACTION = "alert"  # run the agent / dispatch now
 
@@ -68,7 +68,9 @@ class CameraEscalation:
     def _decay(self, now: float) -> None:
         if self.state == COOLDOWN and now >= self.cooldown_until:
             self._reset(now)
-        elif self.state in (SUSPICIOUS, CONFIRMING) and now - self.last_hit_at > ESCALATION_WINDOW_S:
+        elif (
+            self.state in (SUSPICIOUS, CONFIRMING) and now - self.last_hit_at > ESCALATION_WINDOW_S
+        ):
             self._reset(now)
         elif self.state == ALERT and now - self.entered_at > ESCALATION_ALERT_TIMEOUT_S:
             self._reset(now)
@@ -86,7 +88,8 @@ class CameraEscalation:
             if self.state == COOLDOWN:
                 logger.debug(
                     "Camera %s: gated detection ignored (cooldown until %.0f)",
-                    self.camera_id, self.cooldown_until,
+                    self.camera_id,
+                    self.cooldown_until,
                 )
                 return IGNORE
 
@@ -128,19 +131,27 @@ class CameraEscalation:
                 self.entered_at = now
                 logger.warning(
                     "Camera %s: CONFIRMING -> ALERT (%d gated detections)",
-                    self.camera_id, self.hits,
+                    self.camera_id,
+                    self.hits,
                 )
                 return ALERT_ACTION
             logger.debug(
                 "Camera %s: CONFIRMING hit %d/%d (no LLM)",
-                self.camera_id, self.hits, ESCALATION_CONFIRMING_HITS,
+                self.camera_id,
+                self.hits,
+                ESCALATION_CONFIRMING_HITS,
             )
             return IGNORE
 
     def mark_alert_done(self, now: float | None = None) -> None:
-        """Move ALERT -> COOLDOWN after the agent finished the dispatch attempt."""
+        """End the current incident lifecycle - ALERT->COOLDOWN or CONFIRMING->IDLE."""
         now = time.time() if now is None else now
         with self._lock:
+            if self.state == CONFIRMING:
+                # Single-upload and early-terminated lifecycles: reset to IDLE
+                # so the tracker becomes evictable and the next upload starts fresh.
+                self._reset(now)
+                return
             if self.state != ALERT:
                 return
             self.state = COOLDOWN
@@ -148,7 +159,8 @@ class CameraEscalation:
             self.entered_at = now
             logger.info(
                 "Camera %s: ALERT -> COOLDOWN (%.0fs)",
-                self.camera_id, ESCALATION_COOLDOWN_S,
+                self.camera_id,
+                ESCALATION_COOLDOWN_S,
             )
 
     def snapshot(self) -> dict:
@@ -179,13 +191,18 @@ def tracker_for(camera_id: str) -> CameraEscalation:
                 # Evict stale idle entries so the registry stays bounded.
                 now = time.time()
                 stale = [
-                    cid for cid, item in _registry.items()
+                    cid
+                    for cid, item in _registry.items()
                     if item.state == IDLE and now - item.last_hit_at > 600
                 ]
                 for cid in stale:
                     del _registry[cid]
                 if len(_registry) >= _MAX_CAMERAS:
-                    _registry.clear()
+                    # Hard-evict the camera with the oldest last_hit_at so the
+                    # bound still holds and a single test/upload flood never
+                    # wipes all live escalations.
+                    oldest = min(_registry.items(), key=lambda kv: kv[1].last_hit_at)
+                    del _registry[oldest[0]]
             tracker = CameraEscalation(camera_id)
             _registry[camera_id] = tracker
         return tracker

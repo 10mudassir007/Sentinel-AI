@@ -9,6 +9,7 @@ import pytest
 def geocode():
     """Import geocode module with a fresh cache for each test."""
     import services.geocode as mod
+
     mod._cache.clear()
     return mod
 

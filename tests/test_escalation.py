@@ -1,22 +1,17 @@
 """Tests for core.escalation: per-camera state machine lifecycle."""
 
-from unittest.mock import patch
-
-import pytest
-
 from core.escalation import (
     ALERT,
     ALERT_ACTION,
     ANALYZE,
-    COOLDOWN,
     CONFIRMING,
+    COOLDOWN,
     IDLE,
     IGNORE,
     SUSPICIOUS,
     CameraEscalation,
     tracker_for,
 )
-
 
 # --- Full lifecycle (default config: 3 confirming hits) ---------------
 
@@ -116,7 +111,7 @@ class TestEscalationDecay:
         t.on_gated_detection(now=100.0)  # -> SUSPICIOUS
         t.on_gated_detection(now=101.0)  # -> CONFIRMING
         # 61s later (>60s window).
-        action = t.on_gated_detection(now=162.0)
+        t.on_gated_detection(now=162.0)
         assert t.state == SUSPICIOUS  # decayed to IDLE, then IDLE -> SUSPICIOUS
 
     def test_alert_decays_after_timeout(self):

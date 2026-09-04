@@ -11,17 +11,17 @@ import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
 
-logger = logging.getLogger(__name__)
-
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from fastapi import Depends, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-_bearer_scheme = HTTPBearer(auto_error=False)
-
 from core.config import AUTHORIZED_CNICS, NORMAL_USER_CNIC, TOKEN_TTL_HOURS, TRUSTED_PROXY
+
+logger = logging.getLogger(__name__)
+
+_bearer_scheme = HTTPBearer(auto_error=False)
 
 # Max unique client IPs tracked before pruning idle entries.
 _MAX_TRACKED_IPS = 10_000
@@ -64,9 +64,7 @@ def hash_cnic(cnic: str) -> str:
     """Return an Argon2id PHC hash of a CNIC (format-validated)."""
     normalized = normalize_cnic(cnic)
     if normalized is None:
-        raise ValueError(
-            "Invalid CNIC, expected format 12345-1234567-1 (13 digits)"
-        )
+        raise ValueError("Invalid CNIC, expected format 12345-1234567-1 (13 digits)")
     return _hasher.hash(normalized)
 
 
@@ -78,9 +76,7 @@ def _load_authorized_hashes() -> tuple[str, ...]:
     hashes = []
     for raw in AUTHORIZED_CNICS:
         if not raw.startswith("$argon2"):
-            logging.warning(
-                "Ignoring AUTHORIZED_CNICS entry that is not an Argon2 hash: %.40r", raw
-            )
+            logging.warning("Ignoring a non-Argon2 AUTHORIZED_CNICS entry (value redacted)")
         else:
             hashes.append(raw)
     return tuple(hashes)
@@ -95,9 +91,7 @@ if NORMAL_USER_CNIC:
     if NORMAL_USER_CNIC.startswith("$argon2"):
         _NORMAL_USER_HASH = NORMAL_USER_CNIC
     else:
-        logging.warning(
-            "Ignoring NORMAL_USER_CNIC that is not an Argon2 hash: %.40r", NORMAL_USER_CNIC
-        )
+        logging.warning("Ignoring a non-Argon2 NORMAL_USER_CNIC value (redacted)")
 
 
 def _hash_matches(stored: str, cnic: str) -> bool:
@@ -124,13 +118,13 @@ def _cnic_role(cnic: str) -> str | None:
 
 # --- Session tokens ---------------------------------------------------
 
-# digest (sha256 of token) -> (cnic, monotonic expiry)
-_TOKENS: dict[str, tuple[str, float]] = {}
+# digest (sha256 of token) -> (cnic, role, monotonic expiry)
+_TOKENS: dict[str, tuple[str, str, float]] = {}
 _TOKENS_LOCK = threading.Lock()
 
 
 def _prune_expired(now: float) -> None:
-    for digest in [d for d, (_, expires) in _TOKENS.items() if now > expires]:
+    for digest in [d for d, (_, _, expires) in _TOKENS.items() if now > expires]:
         del _TOKENS[digest]
 
 
@@ -154,10 +148,8 @@ def create_session(raw_cnic: str) -> dict:
     with _TOKENS_LOCK:
         _prune_expired(now)
         if len(_TOKENS) >= _MAX_ACTIVE_TOKENS:
-            raise HTTPException(
-                status_code=503, detail="Too many active sessions, try again later"
-            )
-        _TOKENS[digest] = (cnic, now + ttl.total_seconds())
+            raise HTTPException(status_code=503, detail="Too many active sessions, try again later")
+        _TOKENS[digest] = (cnic, role, now + ttl.total_seconds())
 
     return {
         "access_token": token,
@@ -168,25 +160,44 @@ def create_session(raw_cnic: str) -> dict:
     }
 
 
-def _valid_token(token: str) -> bool:
+def _valid_token(token: str) -> tuple[str, str] | None:
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
     with _TOKENS_LOCK:
         entry = _TOKENS.get(digest)
         if entry is None:
-            return False
-        _, expires = entry
+            return None
+        cnic, role, expires = entry
         if time.monotonic() > expires:
             del _TOKENS[digest]
-            return False
-        return True
+            return None
+        return (cnic, role)
 
 
-def require_auth(credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme)) -> None:
-    """Require a valid Bearer token issued by POST /login."""
+def require_auth(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+) -> tuple[str, str]:
+    """Require a valid Bearer token; returns (cnic, role)."""
     if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Missing or invalid token")
-    if not _valid_token(credentials.credentials):
+    result = _valid_token(credentials.credentials)
+    if result is None:
         raise HTTPException(status_code=401, detail="Missing or invalid token")
+    return result
+
+
+def require_role(required_role: str):
+    """Dependency factory: require a valid token AND a specific role.
+
+    Usage:
+        _: None = Depends(require_role("authoritative"))
+    """
+
+    def _check(auth: tuple[str, str] = Depends(require_auth)) -> None:
+        _, role = auth
+        if role != required_role:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    return _check
 
 
 def client_ip(scope: dict) -> str:
@@ -211,7 +222,7 @@ def client_ip(scope: dict) -> str:
             except ValueError:
                 # A malformed header is ignored rather than trusted; otherwise
                 # a misconfigured proxy could be abused to forge client IPs.
-                logger.warning("Ignoring invalid X-Forwarded-For value %r", first)
+                logger.warning("Ignoring invalid X-Forwarded-For value (malformed IP)")
                 first = ""
         if first:
             ip = first
@@ -344,9 +355,7 @@ class MaxUploadSizeMiddleware:
             except ValueError:
                 size = -1
             if size > self.max_size + self.overhead:
-                response = JSONResponse(
-                    {"detail": "File exceeds size limit"}, status_code=413
-                )
+                response = JSONResponse({"detail": "File exceeds size limit"}, status_code=413)
                 await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)

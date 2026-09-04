@@ -1,5 +1,7 @@
 import base64
 import logging
+import threading
+import time
 from collections import deque
 
 import cv2
@@ -7,7 +9,7 @@ import numpy as np
 from langchain_core.messages import HumanMessage
 
 from core.config import DESCRIPTION_LANGUAGES, YOLO_CONF_THRESHOLD
-from core.escalation import ALERT_ACTION, ANALYZE, IGNORE, tracker_for
+from core.escalation import ALERT_ACTION, IGNORE, tracker_for
 from core.llm import get_vision_llm
 from core.yolo_helpers import detect_objects, draw_detections
 
@@ -32,14 +34,18 @@ _DYNAMIC_THRESHOLD_FACTOR = 0.8
 # Long-edge cap for frames sent to the vision LLM (720p-class, aspect preserved).
 _MAX_FRAME_EDGE = 1280
 
-# Vision LLM singleton (lazy init).
-_vision_llm: "ChatGroq | None" = None
+# Vision LLM singleton (lazy init, double-checked under a lock so concurrent
+# analysis threads cannot construct two instances).
+_vision_llm = None
+_vision_llm_lock = threading.Lock()
 
 
 def _get_vis_llm():
     global _vision_llm
     if _vision_llm is None:
-        _vision_llm = get_vision_llm()
+        with _vision_llm_lock:
+            if _vision_llm is None:
+                _vision_llm = get_vision_llm()
     return _vision_llm
 
 
@@ -82,7 +88,7 @@ def analyze_frame(
     messages = []
     prompt_text = f"""
     You are analyzing a video frame, The video is of an incident being happening, you are also given description of previous frame.
-    Previous frame description (context): {previous_description if previous_description else 'None'}
+    Previous frame description (context): {previous_description if previous_description else "None"}
 
     Rules:
     - Focus on the main event in this frame.
@@ -99,8 +105,9 @@ def analyze_frame(
     success, buffer = cv2.imencode(".jpg", frame)
     if success:
         encoded_image = base64.b64encode(buffer).decode("utf-8")
-        messages.append({"type": "image_url",
-                         "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"}})
+        messages.append(
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"}}
+        )
 
     message_obj = HumanMessage(content=messages)
     response = _get_vis_llm().invoke([message_obj])
@@ -110,13 +117,18 @@ def analyze_frame(
 # ------------------------------------------------------------------
 # Main processing
 
-def process_video_for_incidents(video_path: str, target_fps: float = 1,
-                                start_pct: float = 0.0, end_pct: float = 1.0,
-                                show_frames: bool = False,
-                                max_frames_analyzed: int | None = None,
-                                languages: list[str] | None = None,
-                                camera_id: str | None = None,
-                                single_upload: bool = False) -> dict:
+
+def process_video_for_incidents(
+    video_path: str,
+    target_fps: float = 1,
+    start_pct: float = 0.0,
+    end_pct: float = 1.0,
+    show_frames: bool = False,
+    max_frames_analyzed: int | None = None,
+    languages: list[str] | None = None,
+    camera_id: str | None = None,
+    single_upload: bool = False,
+) -> dict:
     if target_fps <= 0:
         raise ValueError("target_fps must be positive")
     if not 0.0 <= start_pct <= end_pct <= 1.0:
@@ -151,16 +163,17 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
     # send a camera_id get true cross-upload throttling for that camera.
     #
     # When single_upload=True, a fresh tracker key is always used so every
-    # upload starts from IDLE regardless of camera_id, and the alert fires
-    # immediately after the first vision LLM analysis (no multi-hit
-    # confirmation needed).
+    # upload starts from IDLE regardless of camera_id. Confirmation still
+    # follows the natural escalation path: the alert fires only after
+    # ESCALATION_CONFIRMING_HITS gated detections (minimum 2, default 3),
+    # so a clip with too few gated frames is throttled, not dispatched.
     tracker_key = camera_id or video_path
     if single_upload:
         tracker_key = f"__single__{video_path}"
     tracker = tracker_for(tracker_key)
     alert_triggered = False
 
-    FRAME_SKIP = max(int(fps / target_fps), 1)
+    frame_skip = max(int(fps / target_fps), 1)
 
     logger.info("Processing video for incidents: %s", video_path)
 
@@ -176,7 +189,7 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
                 continue
             if timestamp > end_time:
                 break
-            if frame_index % FRAME_SKIP != 0:
+            if frame_index % frame_skip != 0:
                 frame_index += 1
                 continue
 
@@ -198,15 +211,15 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
                 continue
 
             mean_motion = np.mean(motion_history)
-            dynamic_threshold = max(
-                mean_motion * _DYNAMIC_THRESHOLD_FACTOR, _MIN_MOTION_PERCENT
-            )
+            dynamic_threshold = max(mean_motion * _DYNAMIC_THRESHOLD_FACTOR, _MIN_MOTION_PERCENT)
 
             if motion_score < dynamic_threshold:
                 motion_discards += 1
                 logger.debug(
                     "Discarding frame at %.2fs: motion %.2f%% below threshold %.2f%%",
-                    timestamp, motion_score, dynamic_threshold,
+                    timestamp,
+                    motion_score,
+                    dynamic_threshold,
                 )
                 frame_index += 1
                 continue
@@ -217,9 +230,9 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
             if not detections:
                 detection_discards += 1
                 logger.debug(
-                    "Discarding frame at %.2fs: no interest class above "
-                    "%.2f confidence",
-                    timestamp, YOLO_CONF_THRESHOLD,
+                    "Discarding frame at %.2fs: no interest class above %.2f confidence",
+                    timestamp,
+                    YOLO_CONF_THRESHOLD,
                 )
                 frame_index += 1
                 continue
@@ -237,16 +250,18 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
                 alert_triggered = True
                 logger.info(
                     "Camera %s: incident confirmed at %.2fs - dispatch authorized",
-                    tracker_key, timestamp,
+                    tracker_key,
+                    timestamp,
                 )
                 break
 
             if action == IGNORE:
                 throttled_frames += 1
                 logger.debug(
-                    "Frame at %.2fs throttled by escalation state machine "
-                    "(camera %s, state %s)",
-                    timestamp, tracker_key, tracker.state,
+                    "Frame at %.2fs throttled by escalation state machine (camera %s, state %s)",
+                    timestamp,
+                    tracker_key,
+                    tracker.state,
                 )
                 frame_index += 1
                 continue
@@ -261,22 +276,35 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
                 continue
             last_description = description
 
-            incidents.append({
-                "timestamp": round(timestamp, 2),
-                "objects": detections,
-                "llm_description": description
-            })
+            incidents.append(
+                {
+                    "timestamp": round(timestamp, 2),
+                    "objects": detections,
+                    "llm_description": description,
+                }
+            )
 
-            # In single_upload mode the alert fires immediately on the first
-            # analysed frame — no need for multiple confirming hits.
+            # In single_upload mode this follow-up detection closes the
+            # confirming gap when ESCALATION_CONFIRMING_HITS=2, so a demo
+            # clip alerts right after its first vision-LLM analysis; with
+            # higher thresholds, later gated frames in the same clip
+            # provide the remaining confirming hits.
             if single_upload:
-                alert_triggered = True
-                logger.info(
-                    "Single upload mode: incident confirmed at %.2fs "
-                    "(camera %s) — dispatching now",
-                    timestamp, tracker_key,
+                action2 = tracker.on_gated_detection(now=time.time())
+                if action2 == ALERT_ACTION:
+                    alert_triggered = True
+                    logger.info(
+                        "Single upload mode: incident confirmed at %.2fs "
+                        "(camera %s) — dispatching now",
+                        timestamp,
+                        tracker_key,
+                    )
+                    break
+                logger.debug(
+                    "Single upload mode: awaiting additional gated frames (camera %s, action=%s)",
+                    tracker_key,
+                    action2,
                 )
-                break
 
             if max_frames_analyzed is not None and len(incidents) >= max_frames_analyzed:
                 logger.info("Reached analysis cap of %d frames", max_frames_analyzed)
@@ -297,8 +325,13 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
         "Gating summary for %s (camera %s): %d frames below motion threshold, "
         "%d frames with no relevant detection, %d frames throttled by the "
         "escalation state machine, %d frames escalated to the LLM, alert=%s",
-        video_path, tracker_key, motion_discards, detection_discards,
-        throttled_frames, len(incidents), alert_triggered,
+        video_path,
+        tracker_key,
+        motion_discards,
+        detection_discards,
+        throttled_frames,
+        len(incidents),
+        alert_triggered,
     )
 
     return {
@@ -313,5 +346,6 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
 # ------------------------------------------------------------------
 if __name__ == "__main__":
     import json
+
     result = process_video_for_incidents("test/armed robbery in Pakistan.mp4", show_frames=True)
     print(json.dumps(result, indent=2))

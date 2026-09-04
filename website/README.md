@@ -20,10 +20,10 @@ Built with **Vite 5 + React 18 + TypeScript + Tailwind CSS 3 + shadcn/ui**, depl
 
 ## Demo page (`/demo`)
 
-The demo talks to the real Sentinel‑AI API (FastAPI, default `http://localhost:8754`):
+The demo uses a shared `ApiClient` (`src/lib/api.ts`) to talk to the real Sentinel‑AI backend (FastAPI, configured via `VITE_API_URL`):
 
 - `POST /analyze-video` — multipart upload of a pre-recorded clip (`language=en`, fixed demo coordinates, `camera_id=web-demo`, `single_upload=1`)
-- `GET /audio/{filename}` — plays the generated voice alert (bearer auth)
+- `GET /audio/{filename}` — plays the generated voice alert (bearer auth, revokes blob URLs on unmount)
 - API unreachable or request rejected → the page falls back to a realistic sample response (clearly labelled `SAMPLE_DATA`)
 
 > ⚠️ **Demo-only uploads.** The `/demo` page uploads a pre-recorded clip purely to demonstrate the detection pipeline. In production the same backend is fed by **live video** (stationary cameras pushing clips/streams with a stable `camera_id`, or the mobile app streaming recorded chunks) — uploading a file is not the production ingestion path.
@@ -36,10 +36,11 @@ Create a `.env` file in this folder (or set them in the Vercel project settings)
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `VITE_API_URL` | Backend base URL | `http://localhost:8754` |
+| `VITE_API_URL` | Backend base URL — **required** (app fails fast at startup if missing) | `http://localhost:8754` |
 | `VITE_DEMO_CNIC` | CNIC used to log in to the demo — must match an Argon2id hash in the backend's `AUTHORIZED_CNICS` | `42101-2345678-9` |
 
-If `VITE_DEMO_CNIC` is not configured, the demo shows the sample response instead of calling the API.
+If `VITE_DEMO_CNIC` is not configured, the demo falls back to the sample response instead of calling the API.
+If `VITE_API_URL` is missing, the build will throw at startup — set it before running or deploying.
 
 ## Development
 

@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing, borderRadius, typography, shadows } from "../theme";
 import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
+import { maskCnic } from "../constants";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { UserStackParamList } from "../types";
 
@@ -40,7 +41,9 @@ export default function UserHomeScreen({ navigation }: Props) {
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>{t("app_name")}</Text>
-          <Text style={styles.cnicText}>{cnic}</Text>
+          <Text style={styles.cnicText}>
+            {cnic ? maskCnic(cnic) : ""}
+          </Text>
         </View>
         <TouchableOpacity
           style={styles.settingsBtn}
@@ -59,10 +62,10 @@ export default function UserHomeScreen({ navigation }: Props) {
         showsVerticalScrollIndicator={false}
       >
         <Text style={[styles.sectionTitle, isRtl && { textAlign: "right" }]}>
-          Detection Modes
+          {t("detection_modes")}
         </Text>
         <Text style={[styles.sectionDesc, isRtl && { textAlign: "right" }]}>
-          Choose how you want to capture footage for AI analysis.
+          {t("detection_modes_desc")}
         </Text>
 
         {/* Record Card */}
@@ -76,14 +79,11 @@ export default function UserHomeScreen({ navigation }: Props) {
           </View>
           <View style={styles.cardContent}>
             <Text style={styles.cardTitle}>{t("record_video")}</Text>
-            <Text style={styles.cardDesc}>
-              Live camera recording in 5s chunks with GPS coordinates and camera
-              ID metadata.
-            </Text>
+            <Text style={styles.cardDesc}>{t("record_desc")}</Text>
             <View style={styles.cardFeatures}>
-              <Text style={styles.featurePill}>📍 GPS</Text>
-              <Text style={styles.featurePill}>📋 5s Chunks</Text>
-              <Text style={styles.featurePill}>📷 Camera ID</Text>
+              <Text style={styles.featurePill}>📍 {t("gps")}</Text>
+              <Text style={styles.featurePill}>📋 {t("chunks_5s")}</Text>
+              <Text style={styles.featurePill}>📷 {t("camera_id_label")}</Text>
             </View>
           </View>
           <Text style={styles.cardArrow}>→</Text>
@@ -105,16 +105,13 @@ export default function UserHomeScreen({ navigation }: Props) {
                 <Text style={styles.demoBadgeText}>{t("demo_badge")}</Text>
               </View>
             </View>
-            <Text style={styles.cardDesc}>
-              Upload a single pre-recorded file from your gallery for
-              demonstration or testing.
-            </Text>
+            <Text style={styles.cardDesc}>{t("demo_upload_desc")}</Text>
             <View style={styles.cardFeatures}>
               <Text style={[styles.featurePill, styles.featurePillDemo]}>
-                📂 Single File
+                📂 {t("single_file")}
               </Text>
               <Text style={[styles.featurePill, styles.featurePillDemo]}>
-                📍 GPS
+                📍 {t("gps")}
               </Text>
             </View>
           </View>

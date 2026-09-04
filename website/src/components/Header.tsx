@@ -81,7 +81,7 @@ const Header = () => {
           {/* CTA */}
           <div className="hidden md:flex items-center gap-3">
             <a
-              href="https://github.com/10mudassir007/Sentinel-AI"
+              href="https://github.com/10mudassir007/Sentinel-AI/releases/tag/v1.0"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -118,7 +118,7 @@ const Header = () => {
             ))}
             <div className="flex flex-col gap-2 mt-4 pt-4 border-t border-border/50">
               <a
-                href="https://github.com/10mudassir007/Sentinel-AI"
+                href="https://github.com/10mudassir007/Sentinel-AI/releases/tag/v1.0"
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => setMobileMenuOpen(false)}

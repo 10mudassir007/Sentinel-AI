@@ -112,6 +112,7 @@ export async function passIncident(incidentId: string): Promise<void> {
  * fetched via Axios and played from the local copy.
  */
 const audioCache = new Map<string, string>();
+const MAX_AUDIO_CACHE_ENTRIES = 20;
 
 export async function getLocalAudioUri(filename: string): Promise<string> {
   const cached = audioCache.get(filename);
@@ -134,17 +135,12 @@ export async function getLocalAudioUri(filename: string): Promise<string> {
   file.write(new Uint8Array(data));
 
   const uri = file.uri;
+  // Bound the in-memory map: evict the oldest entry (disk cache files live in
+  // the OS-managed cache dir and are purged by the system under pressure).
+  if (audioCache.size >= MAX_AUDIO_CACHE_ENTRIES) {
+    const oldest = audioCache.keys().next().value;
+    if (oldest !== undefined) audioCache.delete(oldest);
+  }
   audioCache.set(filename, uri);
   return uri;
-}
-
-// ─── Health ──────────────────────────────────────────────────────────
-
-export async function checkHealth(): Promise<boolean> {
-  try {
-    await getClient().get("/health", { timeout: 5000 });
-    return true;
-  } catch {
-    return false;
-  }
 }

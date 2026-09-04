@@ -34,7 +34,8 @@ app.add_middleware(
     allow_origins=CORS_ORIGINS,
     # Wildcard origins cannot be combined with credentials.
     allow_credentials="*" not in CORS_ORIGINS,
-    allow_methods=["*"],
+    # Only the methods the API exposes are allowed cross-origin.
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -49,10 +50,11 @@ async def health() -> dict:
 def run() -> None:
     """Serve the API:  python main.py  (default port 8754)."""
     import uvicorn
+
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=int(os.getenv("PORT", "8000")),
+        port=int(os.getenv("PORT", "8754")),
     )
 
 

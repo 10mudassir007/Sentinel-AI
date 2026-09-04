@@ -1,12 +1,15 @@
 import json
+import logging
 
 from langchain_core.messages import AIMessage, HumanMessage
 
 from core.agent import get_incident_agent
-from core.config import MAX_FRAMES_TO_ANALYZE, SYSTEM_PROMPT
+from core.config import MAX_FRAMES_TO_ANALYZE
 from core.escalation import tracker_for
 from core.tools import pop_dispatch_info, set_dispatch_context
 from services.process_video import process_video_for_incidents
+
+logger = logging.getLogger(__name__)
 
 
 # Answer used when the escalation state machine has not confirmed an incident
@@ -48,12 +51,28 @@ def analyze_video(
     # languages decide whether that message is spoken in Urdu or English).
     set_dispatch_context(location, languages)
     try:
-        return _analyze(video_path, agent, max_frames_analyzed, languages, location, camera_id, single_upload)
+        return _analyze(
+            video_path,
+            agent,
+            max_frames_analyzed,
+            languages,
+            location,
+            camera_id,
+            single_upload,
+        )
     finally:
         set_dispatch_context(None)
 
 
-def _analyze(video_path, agent, max_frames_analyzed, languages, location, camera_id, single_upload=False):
+def _analyze(
+    video_path,
+    agent,
+    max_frames_analyzed,
+    languages,
+    location,
+    camera_id,
+    single_upload=False,
+):
     video_analysis = process_video_for_incidents(
         video_path,
         max_frames_analyzed=max_frames_analyzed,
@@ -71,20 +90,13 @@ def _analyze(video_path, agent, max_frames_analyzed, languages, location, camera
 
     context = ""
     if location:
-        context = (
-            f"Location:\n{json.dumps(location, indent=2)}\n\n"
-        )
+        context = f"Location:\n{json.dumps(location, indent=2)}\n\n"
 
     message = HumanMessage(
-        content=(
-            f"{SYSTEM_PROMPT}\n\n{context}"
-            f"Video Analysis:\n{json.dumps(video_analysis, indent=2)}"
-        )
+        content=(f"{context}Video Analysis:\n{json.dumps(video_analysis, indent=2)}")
     )
 
     tracker = tracker_for(video_analysis["camera_id"])
-    # In single_upload mode the tracker key is ephemeral, so mark_alert_done
-    # may see CONFIRMING (not ALERT) — that is fine, the lifecycle ends here.
     try:
         response = agent.invoke({"messages": [message]})
 
@@ -92,6 +104,22 @@ def _analyze(video_path, agent, max_frames_analyzed, languages, location, camera
         # Tools run in LangGraph worker threads; the results are stored via
         # contextvars.ContextVar which is propagated across threads.
         dispatch = pop_dispatch_info()
+    except Exception:
+        logger.exception(
+            "Agent dispatch failed for camera %s - incident recorded without dispatch",
+            video_analysis.get("camera_id", "?"),
+        )
+        # Return a degraded response so the incident is still persisted by
+        # the caller. The answer text signals the operator that dispatch
+        # did not proceed.
+        return (
+            video_analysis,
+            (
+                "The system detected an incident but the dispatch agent could not "
+                "be reached. The operator feed has been updated for manual review."
+            ),
+            None,
+        )
     finally:
         # ALERT -> COOLDOWN: one dispatch attempt per incident lifecycle,
         # whether or not the tools succeeded.

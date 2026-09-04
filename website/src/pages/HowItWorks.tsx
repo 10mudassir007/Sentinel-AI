@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { containerVariants, itemVariants } from "@/lib/utils";
 
 const HowItWorks = () => {
   const steps = [
@@ -84,10 +85,10 @@ const HowItWorks = () => {
       title: "Motion Gate & YOLO11m Detection",
       subtitle: "Backend Frame Analysis",
       description:
-        "The backend processes each chunk: a motion gate (frame differencing with Gaussian blur and adaptive thresholding) filters out static frames, then the YOLO11m model detects interest classes (person, vehicle, weapon) at a confidence threshold of 0.25. A per-camera escalation state machine (IDLE to SUSPICIOUS to CONFIRMING to ALERT to COOLDOWN) tracks whether a potential incident is developing.",
+        "The backend processes each chunk: a motion gate (frame differencing with Gaussian blur and adaptive thresholding) filters out static frames, then the YOLO11m model detects interest classes (person, vehicle, weapon). A per-camera escalation state machine (IDLE to SUSPICIOUS to CONFIRMING to ALERT to COOLDOWN) tracks whether a potential incident is developing.",
       details: [
         "Motion gate filters static frames (OpenCV frame differencing)",
-        "YOLO11m detects interest classes at confidence >= 0.25",
+        "YOLO11m detects interest classes",
         "Escalation state machine per camera source",
         "Confirmed detections flagged for AI reasoning",
       ],
@@ -233,23 +234,6 @@ const HowItWorks = () => {
       color: "text-green-400",
     },
   ];
-
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: { staggerChildren: 0.1 },
-    },
-  };
-
-  const itemVariants = {
-    hidden: { opacity: 0, y: 20 },
-    visible: {
-      opacity: 1,
-      y: 0,
-      transition: { duration: 0.5 },
-    },
-  };
 
   const stepVariants = {
     hidden: { opacity: 0, x: -50 },

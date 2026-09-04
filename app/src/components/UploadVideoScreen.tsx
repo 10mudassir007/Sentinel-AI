@@ -16,6 +16,7 @@ import {
   analyzeVideo,
   getLocationCoords,
 } from "../api/endpoints";
+import { getErrorStatus } from "../api/client";
 import { loadSettings } from "../store/settings";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type {
@@ -37,7 +38,7 @@ export default function UploadVideoScreen({ navigation }: Props) {
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [cameraId, setCameraId] = useState("mobile-cam-001");
+  const [cameraId, setCameraId] = useState("");
   const [locationInfo, setLocationInfo] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,10 +59,7 @@ export default function UploadVideoScreen({ navigation }: Props) {
 
   const pickVideo = async () => {
     if (!hasPermission) {
-      Alert.alert(
-        "Permission Required",
-        "Gallery access is needed to select demo videos."
-      );
+      Alert.alert(t("permission_required"), t("gallery_permission_text"));
       return;
     }
 
@@ -77,7 +75,13 @@ export default function UploadVideoScreen({ navigation }: Props) {
         await uploadVideo(asset.uri, asset.fileName ?? "demo.mp4");
       }
     } catch (err) {
-      console.error("Video pick failed:", err);
+      // Log only safe details — the full error would include request
+      // config with the Authorization header.
+      console.error(
+        `Video pick failed: ${
+          err instanceof Error ? err.message : "unknown error"
+        }`
+      );
     }
   };
 
@@ -106,8 +110,23 @@ export default function UploadVideoScreen({ navigation }: Props) {
 
       navigation.replace("AnalysisResult", { result: aggregated });
     } catch (err) {
-      console.error("Analysis failed:", err);
-      navigation.goBack();
+      // Surface failures instead of navigating away silently so the user
+      // knows why the upload did not complete and can retry.
+      console.error(
+        `Video upload failed: ${
+          err instanceof Error ? err.message : "unknown error"
+        }`
+      );
+      const status = getErrorStatus(err);
+      const message =
+        status === 422
+          ? t("video_too_long")
+          : status === 413
+          ? t("video_too_large")
+          : status === 503
+          ? t("server_busy_msg")
+          : t("upload_failed_msg");
+      Alert.alert(t("error"), message, [{ text: t("ok") }]);
     } finally {
       setIsProcessing(false);
     }
@@ -156,12 +175,9 @@ export default function UploadVideoScreen({ navigation }: Props) {
             <Text style={styles.uploadIcon}>📁</Text>
           </View>
           <Text style={styles.uploadTitle}>{t("select_video")}</Text>
-          <Text style={styles.uploadDesc}>
-            Choose a pre-recorded video from your gallery to test the Sentinel
-            AI detection pipeline.
-          </Text>
+          <Text style={styles.uploadDesc}>{t("upload_desc")}</Text>
           <Text style={styles.uploadFormatNote}>
-            A single video upload with GPS coordinates attached.
+            {t("single_upload_note")}
           </Text>
           <TouchableOpacity
             style={[styles.selectBtn, isProcessing && styles.selectBtnDisabled]}
@@ -171,7 +187,7 @@ export default function UploadVideoScreen({ navigation }: Props) {
           >
             <Text style={styles.selectBtnText}>{t("select_video")}</Text>
           </TouchableOpacity>
-          <Text style={styles.formats}>Supported: MP4, MOV, AVI</Text>
+          <Text style={styles.formats}>{t("supported_formats")}</Text>
         </View>
       </View>
 
@@ -182,7 +198,7 @@ export default function UploadVideoScreen({ navigation }: Props) {
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={styles.processingTitle}>{t("processing")}</Text>
             <Text style={styles.processingHint}>
-              Analyzing with AI detection pipeline...
+              {t("analyzing_pipeline")}
             </Text>
           </View>
         </View>

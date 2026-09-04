@@ -71,14 +71,10 @@ def reverse_geocode(latitude: float, longitude: float) -> dict:
         (latitude, longitude), language="en", zoom=16, addressdetails=True
     )
     if location is None:
-        raise ValueError(
-            f"Reverse geocoding returned no result for {latitude}, {longitude}"
-        )
+        raise ValueError(f"Reverse geocoding returned no result for {latitude}, {longitude}")
     data = location.raw
     if not data.get("display_name"):
-        raise ValueError(
-            f"Reverse geocoding returned no result: {data.get('error', 'empty')}"
-        )
+        raise ValueError(f"Reverse geocoding returned no result: {data.get('error', 'empty')}")
 
     result = {
         "latitude": latitude,

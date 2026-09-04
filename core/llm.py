@@ -1,13 +1,15 @@
 import logging
 
 from langchain_groq import ChatGroq
-from core.config import GROQ_API_KEY, GOOGLE_API_KEY
+
+from core.config import GOOGLE_API_KEY, GROQ_API_KEY
 
 logger = logging.getLogger(__name__)
 
 
 def _make_gemini():
     from langchain_google_genai import ChatGoogleGenerativeAI
+
     return ChatGoogleGenerativeAI(
         model="gemini-3.5-flash-lite",
         google_api_key=GOOGLE_API_KEY,
