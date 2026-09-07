@@ -78,7 +78,8 @@ export default function IncidentAlertModal({
         const uri = await getLocalAudioUri(audioFile);
         if (cancelled) return;
         player = createAudioPlayer({ uri });
-        player.addListener("playbackStatusUpdate", (status) => {
+        // Cast to any due to SDK 57 type mismatch between AudioPlayer and EventEmitter.
+        (player as any).addListener("playbackStatusUpdate", (status: any) => {
           // Start playback as soon as the file has loaded
           if (!cancelled && !started && status.isLoaded) {
             started = true;

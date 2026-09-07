@@ -5,7 +5,10 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
+    "icon": "./assets/logo.png",
     "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
       "backgroundColor": "#0A0E1A"
     },
     "assetBundlePatterns": [
@@ -55,7 +58,11 @@
           "locationWhenInUsePermission": "Your location is sent along with emergency video footage to help responders reach you faster."
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "expo-asset",
+      "expo-localization",
+      "expo-secure-store",
+      "expo-status-bar"
     ],
     "extra": {
       "eas": {

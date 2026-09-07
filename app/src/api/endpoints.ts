@@ -12,7 +12,11 @@ import { loadSettings } from "../store/settings";
 // ─── Login ───────────────────────────────────────────────────────────
 
 export async function login(cnic: string): Promise<LoginResponse> {
-  const { data } = await getClient().post<LoginResponse>("/login", { cnic });
+  const { data } = await getClient().post<LoginResponse>(
+    "/login",
+    JSON.stringify({ cnic }),
+    { headers: { "Content-Type": "application/json" } }
+  );
   return data;
 }
 
@@ -138,13 +142,3 @@ export async function getLocalAudioUri(filename: string): Promise<string> {
   return uri;
 }
 
-// ─── Health ──────────────────────────────────────────────────────────
-
-export async function checkHealth(): Promise<boolean> {
-  try {
-    await getClient().get("/health", { timeout: 5000 });
-    return true;
-  } catch {
-    return false;
-  }
-}

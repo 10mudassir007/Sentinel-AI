@@ -62,6 +62,14 @@ export const translations: Translations = {
     cnic_format_hint: "Format: 12345-1234567-1",
     connection_error:
       "Could not connect to server. Check the backend URL in Settings.",
+    backend_url_invalid: "Please enter a valid URL starting with http:// or https://",
+    backend_url_unreachable:
+      "Could not reach the backend. Check the URL and make sure the server is running.",
+    backend_url_title: "Connect to Backend",
+    backend_url_description:
+      "Enter the address of your Sentinel AI backend server. The app will verify the connection before continuing.",
+    backend_url_placeholder: "e.g. http://192.168.1.10:8754",
+    backend_url_test_continue: "Test & Continue",
     location_permission: "Location access needed to attach coordinates.",
     location_fetching: "Getting location...",
     location_unavailable: "Location unavailable. Video will be sent without coordinates.",
@@ -128,6 +136,14 @@ export const translations: Translations = {
     cnic_format_hint: "فارمیٹ: 12345-1234567-1",
     connection_error:
       "سرور سے رابطہ نہیں ہو سکا۔ ترتیبات میں بیک اینڈ URL چیک کریں۔",
+    backend_url_invalid: "براہ کرم http:// یا https:// سے شروع ہونے والا درست URL درج کریں",
+    backend_url_unreachable:
+      "بیک اینڈ تک رسائی نہیں ہو سکی۔ URL چیک کریں اور یقینی بنائیں کہ سرور چل رہا ہے۔",
+    backend_url_title: "بیک اینڈ سے مربوط ہوں",
+    backend_url_description:
+      "اپنے Sentinel AI بیک اینڈ سرور کا پتہ درج کریں۔ ایپ جاری رہنے سے پہلے کنکشن کی تصدیق کرے گی۔",
+    backend_url_placeholder: "مثال: http://192.168.1.10:8754",
+    backend_url_test_continue: "ٹیسٹ کریں اور جاری رکھیں",
     location_permission: "مقام کی اجازت درکار ہے۔",
     location_fetching: "مقام حاصل ہو رہا ہے...",
     location_unavailable: "مقام دستیاب نہیں۔ ویڈیو بغیر کوآرڈینیٹ کے بھیجی جائے گی۔",
