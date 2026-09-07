@@ -5,7 +5,10 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
+    "icon": "./assets/logo.png",
     "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
       "backgroundColor": "#0A0E1A"
     },
     "assetBundlePatterns": [
@@ -17,10 +20,7 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Camera is used to record video footage for AI-based emergency detection.",
         "NSPhotoLibraryUsageDescription": "Photo library access is used to upload demo videos for analysis.",
-        "NSMicrophoneUsageDescription": "Microphone is used during video recording.",
-        "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true
-        }
+        "NSMicrophoneUsageDescription": "Microphone is used during video recording."
       }
     },
     "android": {
@@ -58,21 +58,11 @@
           "locationWhenInUsePermission": "Your location is sent along with emergency video footage to help responders reach you faster."
         }
       ],
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "usesCleartextTraffic": true
-          }
-        }
-      ],
-      [
-        "expo-secure-store",
-        {
-          "configureAndroidBackup": true
-        }
-      ],
-      "expo-audio"
+      "expo-audio",
+      "expo-asset",
+      "expo-localization",
+      "expo-secure-store",
+      "expo-status-bar"
     ],
     "extra": {
       "eas": {

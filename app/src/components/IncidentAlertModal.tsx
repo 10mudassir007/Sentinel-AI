@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -33,21 +33,6 @@ export default function IncidentAlertModal({
   const { t, lang } = useI18n();
   const isRtl = lang === "ur";
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  // Player created by this modal's auto-play; kept in a ref so replaying via
-  // the parent stops it first (two players would otherwise overlap).
-  const localPlayerRef = useRef<AudioPlayer | null>(null);
-
-  const stopLocalPlayback = useCallback(() => {
-    const p = localPlayerRef.current;
-    localPlayerRef.current = null;
-    if (p) {
-      try {
-        p.remove();
-      } catch {
-        // ignore
-      }
-    }
-  }, []);
 
   // Pulse animation for the alert icon
   useEffect(() => {
@@ -86,44 +71,35 @@ export default function IncidentAlertModal({
 
     let cancelled = false;
     let started = false;
+    let player: AudioPlayer | null = null;
 
     (async () => {
       try {
         const uri = await getLocalAudioUri(audioFile);
         if (cancelled) return;
-        const player = createAudioPlayer({ uri });
-        if (cancelled) {
-          // Stopped while downloading — release the fresh player immediately
-          try {
-            player.remove();
-          } catch {
-            // ignore
-          }
-          return;
-        }
-        localPlayerRef.current = player;
-        player.addListener("playbackStatusUpdate", (status) => {
-          // Ignore events after this player was stopped/replaced
-          if (localPlayerRef.current !== player) return;
+        player = createAudioPlayer({ uri });
+        // Cast to any due to SDK 57 type mismatch between AudioPlayer and EventEmitter.
+        (player as any).addListener("playbackStatusUpdate", (status: any) => {
           // Start playback as soon as the file has loaded
           if (!cancelled && !started && status.isLoaded) {
             started = true;
-            player.play();
+            player?.play();
           }
         });
       } catch (err) {
-        console.error(
-          "Alert audio playback failed:",
-          err instanceof Error ? err.message : "unknown error"
-        );
+        console.error("Alert audio playback failed:", err);
       }
     })();
 
     return () => {
       cancelled = true;
-      stopLocalPlayback();
+      if (player) {
+        try {
+          player.remove();
+        } catch {}
+      }
     };
-  }, [visible, incident?.audio_file, stopLocalPlayback]);
+  }, [visible, incident?.audio_file]);
 
   if (!incident) return null;
 
@@ -184,12 +160,7 @@ export default function IncidentAlertModal({
           {/* Replay audio */}
           <TouchableOpacity
             style={styles.replayBtn}
-            onPress={() => {
-              // Stop this modal's own player first so the parent's player is
-              // the only one playing (no overlapping audio)
-              stopLocalPlayback();
-              onPlayAudio(incident);
-            }}
+            onPress={() => onPlayAudio(incident)}
             activeOpacity={0.7}
           >
             <Text style={styles.replayBtnText}>🔊 {t("play_audio")}</Text>

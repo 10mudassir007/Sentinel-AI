@@ -158,7 +158,7 @@ NORMAL_USER_CNIC = os.getenv("NORMAL_USER_CNIC", "").strip()
 CORS_ORIGINS = _parse_origins(
     os.getenv(
         "CORS_ORIGINS",
-        "http://localhost:8754,http://localhost:5173,http://127.0.0.1:8754",
+        "http://localhost:8754,http://localhost:5173,http://127.0.0.1:8754,http://localhost:8081,http://localhost:19006",
     )
 )
 

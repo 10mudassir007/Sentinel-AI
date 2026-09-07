@@ -12,7 +12,11 @@ import { loadSettings } from "../store/settings";
 // ─── Login ───────────────────────────────────────────────────────────
 
 export async function login(cnic: string): Promise<LoginResponse> {
-  const { data } = await getClient().post<LoginResponse>("/login", { cnic });
+  const { data } = await getClient().post<LoginResponse>(
+    "/login",
+    JSON.stringify({ cnic }),
+    { headers: { "Content-Type": "application/json" } }
+  );
   return data;
 }
 
@@ -112,7 +116,6 @@ export async function passIncident(incidentId: string): Promise<void> {
  * fetched via Axios and played from the local copy.
  */
 const audioCache = new Map<string, string>();
-const MAX_AUDIO_CACHE_ENTRIES = 20;
 
 export async function getLocalAudioUri(filename: string): Promise<string> {
   const cached = audioCache.get(filename);
@@ -135,12 +138,7 @@ export async function getLocalAudioUri(filename: string): Promise<string> {
   file.write(new Uint8Array(data));
 
   const uri = file.uri;
-  // Bound the in-memory map: evict the oldest entry (disk cache files live in
-  // the OS-managed cache dir and are purged by the system under pressure).
-  if (audioCache.size >= MAX_AUDIO_CACHE_ENTRIES) {
-    const oldest = audioCache.keys().next().value;
-    if (oldest !== undefined) audioCache.delete(oldest);
-  }
   audioCache.set(filename, uri);
   return uri;
 }
+

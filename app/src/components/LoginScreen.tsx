@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing, borderRadius, typography, shadows } from "../theme";
 import { useI18n } from "../context/I18nContext";
 import { useAuth } from "../context/AuthContext";
+import { Logo } from "./Logo";
 import { login } from "../api/endpoints";
 import { reconfigureClient } from "../api/client";
 import { loadSettings } from "../store/settings";
@@ -99,6 +100,13 @@ export default function LoginScreen({ onLoginSuccess }: Props) {
           setError(t("invalid_cnic"));
         } else if (err.code === "ERR_NETWORK") {
           setError(t("connection_error"));
+        } else if (err.response) {
+          const detail = err.response.data?.detail;
+          setError(
+            typeof detail === "string"
+              ? detail
+              : `${t("server_error")} (${err.response.status})`
+          );
         } else {
           setError(t("server_error"));
         }
@@ -128,9 +136,7 @@ export default function LoginScreen({ onLoginSuccess }: Props) {
         {/* Logo / Brand */}
         <View style={styles.header}>
           <View style={styles.glowRing}>
-            <View style={styles.logoContainer}>
-              <Text style={styles.logoText}>S</Text>
-            </View>
+            <Logo size={64} />
           </View>
           <Text style={[styles.title, isRtl && { textAlign: "right" }]}>
             {t("app_name")}
@@ -234,19 +240,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: spacing.md,
     ...shadows.glow,
-  },
-  logoContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logoText: {
-    fontSize: 30,
-    fontWeight: "800",
-    color: colors.foreground,
   },
   title: {
     ...typography.h2,

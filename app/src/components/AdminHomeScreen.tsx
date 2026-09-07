@@ -236,7 +236,8 @@ export default function AdminHomeScreen({ navigation }: Props) {
       playerRef.current = player;
       setPlayingId(incident.id);
 
-      player.addListener("playbackStatusUpdate", (status) => {
+      // Cast to any due to SDK 57 type mismatch between AudioPlayer and EventEmitter.
+      (player as any).addListener("playbackStatusUpdate", (status: any) => {
         if (playerRef.current !== player) return;
         if (status.didJustFinish) {
           // Defer cleanup out of the event callback to avoid disposing mid-event
