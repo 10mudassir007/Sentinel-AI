@@ -7,8 +7,7 @@ const SETTINGS_KEY = "sentinel_app_settings";
  * Backend URL baked in from .env (EXPO_PUBLIC_API_URL) at bundle time.
  * Used as the default until the user overrides it via Settings.
  */
-export const DEFAULT_API_URL: string =
-  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8754";
+export const DEFAULT_API_URL: string = process.env.EXPO_PUBLIC_API_URL;
 
 /** Old hardcoded default that every install used to share. */
 const LEGACY_DEFAULT_CAMERA_ID = "mobile-cam-001";
