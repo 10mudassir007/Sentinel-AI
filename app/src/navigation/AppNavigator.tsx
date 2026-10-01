@@ -6,6 +6,7 @@ import { colors } from "../theme";
 import { useAuth } from "../context/AuthContext";
 import { isFirstLaunch } from "../store/settings";
 
+import BackendUrlSetupScreen from "../components/BackendUrlSetupScreen";
 import LanguageSelectScreen from "../components/LanguageSelectScreen";
 import LoginScreen from "../components/LoginScreen";
 import UserHomeScreen from "../components/UserHomeScreen";
@@ -58,7 +59,8 @@ function AdminNavigator({ onLogout }: { onLogout: () => void }) {
 }
 
 export default function AppNavigator() {
-  const { userType, isLoading } = useAuth();
+  const { userType, isLoading, signOut } = useAuth();
+  const [showBackendSetup, setShowBackendSetup] = useState(false);
   const [showLanguageSelect, setShowLanguageSelect] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [isCheckingFirstLaunch, setIsCheckingFirstLaunch] = useState(true);
@@ -68,7 +70,7 @@ export default function AppNavigator() {
       try {
         const first = await isFirstLaunch();
         if (first && !userType) {
-          setShowLanguageSelect(true);
+          setShowBackendSetup(true);
         } else if (!userType) {
           setShowLogin(true);
         }
@@ -89,7 +91,7 @@ export default function AppNavigator() {
   }
 
   // User is authenticated - show the appropriate navigator
-  if (userType && !showLanguageSelect && !showLogin) {
+  if (userType && !showBackendSetup && !showLanguageSelect && !showLogin) {
     return (
       <NavigationContainer
         theme={{
@@ -128,6 +130,17 @@ export default function AppNavigator() {
   }
 
   // Pre-auth flow
+  if (showBackendSetup) {
+    return (
+      <BackendUrlSetupScreen
+        onComplete={() => {
+          setShowBackendSetup(false);
+          setShowLanguageSelect(true);
+        }}
+      />
+    );
+  }
+
   if (showLanguageSelect) {
     return (
       <LanguageSelectScreen

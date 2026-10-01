@@ -7,6 +7,8 @@
     "userInterfaceStyle": "dark",
     "icon": "./assets/icon.png",
     "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
       "backgroundColor": "#0A0E1A"
     },
     "assetBundlePatterns": [
@@ -18,10 +20,7 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Camera is used to record video footage for AI-based emergency detection.",
         "NSPhotoLibraryUsageDescription": "Photo library access is used to upload demo videos for analysis.",
-        "NSMicrophoneUsageDescription": "Microphone is used during video recording.",
-        "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true
-        }
+        "NSMicrophoneUsageDescription": "Microphone is used during video recording."
       }
     },
     "android": {

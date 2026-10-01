@@ -9,6 +9,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing, borderRadius, typography, shadows } from "../theme";
 import { useI18n } from "../context/I18nContext";
+import { Logo } from "./Logo";
 import type { AppLanguage } from "../types";
 import { markFirstLaunchDone, saveSettings } from "../store/settings";
 
@@ -43,7 +44,7 @@ export default function LanguageSelectScreen({ onComplete }: Props) {
       <View style={styles.header}>
         <View style={styles.logoContainer}>
           <View style={styles.logoGlow} />
-          <Text style={styles.logoText}>S</Text>
+          <Logo size={80} />
         </View>
         <Text style={styles.title}>{t("app_name")}</Text>
         <Text style={styles.subtitle}>{t("select_language")}</Text>
@@ -120,14 +121,13 @@ const styles = StyleSheet.create({
     ...shadows.glow,
   },
   logoGlow: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
     backgroundColor: colors.primaryGlow,
     borderRadius: 20,
-  },
-  logoText: {
-    fontSize: 36,
-    fontWeight: "800",
-    color: colors.foreground,
   },
   title: {
     ...typography.h1,
