@@ -21,6 +21,7 @@ import {
 } from "../store/settings";
 import { reconfigureClient } from "../api/client";
 import { APP_VERSION } from "../constants";
+import ThemedConfirmDialog from "./ThemedConfirmDialog";
 import type { AppLanguage } from "../types";
 
 interface Props {
@@ -39,6 +40,7 @@ export default function SettingsScreen({ onLogout }: Props) {
   const [cameraId, setCameraId] = useState("");
   const [shareLocation, setShareLocation] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -83,18 +85,10 @@ export default function SettingsScreen({ onLogout }: Props) {
     Alert.alert(t("ok"), t("settings_saved"));
   };
 
-  const handleLogout = () => {
-    Alert.alert(t("confirm_logout"), "", [
-      { text: t("cancel"), style: "cancel" },
-      {
-        text: t("logout"),
-        style: "destructive",
-        onPress: async () => {
-          await signOut();
-          onLogout();
-        },
-      },
-    ]);
+  const handleLogout = async () => {
+    setShowLogoutConfirm(false);
+    await signOut();
+    onLogout();
   };
 
   return (
@@ -283,7 +277,7 @@ export default function SettingsScreen({ onLogout }: Props) {
         {/* Logout */}
         <TouchableOpacity
           style={styles.logoutBtn}
-          onPress={handleLogout}
+          onPress={() => setShowLogoutConfirm(true)}
           activeOpacity={0.7}
         >
           <Text style={styles.logoutBtnText}>{t("logout")}</Text>
@@ -293,6 +287,16 @@ export default function SettingsScreen({ onLogout }: Props) {
           {t("app_name")} Mobile v{APP_VERSION}
         </Text>
       </ScrollView>
+
+      <ThemedConfirmDialog
+        visible={showLogoutConfirm}
+        title={t("confirm_logout")}
+        message={t("logout_confirm_message")}
+        confirmLabel={t("logout")}
+        cancelLabel={t("cancel")}
+        onConfirm={handleLogout}
+        onCancel={() => setShowLogoutConfirm(false)}
+      />
     </View>
   );
 }

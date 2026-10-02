@@ -6,7 +6,8 @@ The **Sentinel‑AI** field app. Built with **Expo SDK 54 (React Native 0.81 + R
 
 | Screen | Role | Purpose |
 |---|---|---|
-| Language select | — | First-launch English / Urdu picker (Urdu UI renders RTL) |
+| Language select | — | Shown as the **first screen of every launch** — the user picks English or Urdu (Urdu UI renders RTL); the choice is saved but must be confirmed each time |
+| Server address | — | Asked for on **every** launch, right after the language picker and before CNIC: the app asks for the backend URL, verifies it with `GET /health`, then continues |
 | Login | — | CNIC login via `POST /login` against the backend; the returned `user_type` decides which home screen opens |
 | Home (user) | `user` | Two actions: **Record** (live footage) and **Upload Video** (demo) |
 | Record video | `user` | Records the camera in **5-second chunks** and uploads each chunk to `POST /analyze-video` as it is captured (`single_upload=0`, stable `camera_id`, GPS + language from settings) — i.e. it streams footage the way a live camera would |
@@ -61,7 +62,7 @@ Create `.env` in this folder (copy `.env.example`):
 |---|---|---|
 | `EXPO_PUBLIC_API_URL` | Backend base URL (no trailing path) used by the axios client | `http://localhost:8754` — fine for the Android emulator (`http://10.0.2.2:8754`), wrong for a physical phone |
 
-The **Settings** screen overrides this value at runtime (persisted per install), so the bundled default only matters on first launch.
+The **Settings** screen overrides this value at runtime (persisted per install). The app also asks for the backend address on **every** launch — prefilled with the saved value and verified with `GET /health` — right after the language picker and before the CNIC login is shown.
 
 ## Talking to the backend
 

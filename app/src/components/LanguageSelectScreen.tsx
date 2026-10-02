@@ -11,7 +11,7 @@ import { colors, spacing, borderRadius, typography, shadows } from "../theme";
 import { useI18n } from "../context/I18nContext";
 import { Logo } from "./Logo";
 import type { AppLanguage } from "../types";
-import { markFirstLaunchDone, saveSettings } from "../store/settings";
+import { saveSettings } from "../store/settings";
 
 interface Props {
   onComplete: () => void;
@@ -24,7 +24,6 @@ export default function LanguageSelectScreen({ onComplete }: Props) {
   const handleSelect = async (l: AppLanguage) => {
     setLanguage(l);
     await saveSettings({ language: l });
-    await markFirstLaunchDone();
     onComplete();
   };
 

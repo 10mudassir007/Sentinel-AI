@@ -29,6 +29,8 @@ export const translations: Translations = {
     share_location_desc: "Attach GPS coordinates to video uploads for geolocation",
     logout: "Logout",
     confirm_logout: "Are you sure you want to log out?",
+    logout_confirm_message:
+      "You will be signed out. To use the app again you pick your language, confirm the backend address and enter your CNIC once more.",
     cancel: "Cancel",
     record_video: "Record Video",
     upload_demo: "Upload Demo",
@@ -65,7 +67,7 @@ export const translations: Translations = {
       "Could not connect to server. Check the backend URL in Settings.",
     backend_url_invalid: "Please enter a valid URL starting with http:// or https://",
     backend_url_unreachable:
-      "Could not reach the backend. Check the URL and make sure the server is running.",
+      "Could not reach the backend at this address — the IP address or port is incorrect. Check it and make sure the server is running.",
     backend_url_title: "Connect to Backend",
     backend_url_description:
       "Enter the address of your Sentinel AI backend server. The app will verify the connection before continuing.",
@@ -157,6 +159,8 @@ export const translations: Translations = {
     share_location_desc: "جیولوکیشن کے لیے ویڈیو اپ لوڈز کے ساتھ GPS کوآرڈینیٹ منسلک کریں",
     logout: "لاگ آؤٹ",
     confirm_logout: "کیا آپ واقعی لاگ آؤٹ کرنا چاہتے ہیں؟",
+    logout_confirm_message:
+      "آپ لاگ آؤٹ ہو جائیں گے۔ دوبارہ استعمال کرنے کے لیے زبان منتخب کرنا، بیک اینڈ ایڈریس کی تصدیق اور CNIC درج کرنا پھر ضروری ہوگا۔",
     cancel: "منسوخ کریں",
     record_video: "ویڈیو ریکارڈ کریں",
     upload_demo: "ڈیمو اپ لوڈ کریں",
@@ -193,7 +197,7 @@ export const translations: Translations = {
       "سرور سے رابطہ نہیں ہو سکا۔ ترتیبات میں بیک اینڈ URL چیک کریں۔",
     backend_url_invalid: "براہ کرم http:// یا https:// سے شروع ہونے والا درست URL درج کریں",
     backend_url_unreachable:
-      "بیک اینڈ تک رسائی نہیں ہو سکی۔ URL چیک کریں اور یقینی بنائیں کہ سرور چل رہا ہے۔",
+      "اس ایڈریس پر بیک اینڈ تک رسائی نہیں ہو سکی — IP ایڈریس یا پورٹ غلط ہے۔ URL چیک کریں اور یقینی بنائیں کہ سرور چل رہا ہے۔",
     backend_url_title: "بیک اینڈ سے مربوط ہوں",
     backend_url_description:
       "اپنے Sentinel AI بیک اینڈ سرور کا پتہ درج کریں۔ ایپ جاری رہنے سے پہلے کنکشن کی تصدیق کرے گی۔",

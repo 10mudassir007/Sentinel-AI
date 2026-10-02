@@ -77,18 +77,3 @@ export async function saveSettings(
   cachedSettings = Promise.resolve(merged);
   return merged;
 }
-
-/** Check if the user has completed first-launch setup. */
-export async function isFirstLaunch(): Promise<boolean> {
-  try {
-    const value = await AsyncStorage.getItem("sentinel_first_launch_done");
-    return value !== "true";
-  } catch {
-    return true;
-  }
-}
-
-/** Mark first-launch as done. */
-export async function markFirstLaunchDone(): Promise<void> {
-  await AsyncStorage.setItem("sentinel_first_launch_done", "true");
-}

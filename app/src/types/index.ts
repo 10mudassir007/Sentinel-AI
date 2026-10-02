@@ -90,6 +90,7 @@ export type TranslationKey =
   | "share_location_desc"
   | "logout"
   | "confirm_logout"
+  | "logout_confirm_message"
   | "cancel"
   | "record_video"
   | "upload_demo"

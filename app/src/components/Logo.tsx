@@ -16,7 +16,7 @@ export function Logo({ size = 80 }: LogoProps) {
       ]}
     >
       <Image
-        source={require("../../assets/logo.png")}
+        source={require("../../assets/icon.png")}
         style={{ width: size, height: size, borderRadius }}
         resizeMode="cover"
       />

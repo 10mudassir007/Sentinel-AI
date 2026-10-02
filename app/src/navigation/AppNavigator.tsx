@@ -4,7 +4,6 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ActivityIndicator, View, StyleSheet } from "react-native";
 import { colors } from "../theme";
 import { useAuth } from "../context/AuthContext";
-import { isFirstLaunch } from "../store/settings";
 
 import BackendUrlSetupScreen from "../components/BackendUrlSetupScreen";
 import LanguageSelectScreen from "../components/LanguageSelectScreen";
@@ -20,6 +19,12 @@ import type { UserStackParamList, AdminStackParamList } from "../types";
 
 const UserStack = createNativeStackNavigator<UserStackParamList>();
 const AdminStack = createNativeStackNavigator<AdminStackParamList>();
+
+/**
+ * Pre-auth screens, in the order they are shown on every launch: the language
+ * picker first, then the backend address, then the CNIC login.
+ */
+type PreAuthStep = "backend" | "language" | "login";
 
 function UserNavigator({ onLogout }: { onLogout: () => void }) {
   return (
@@ -59,30 +64,21 @@ function AdminNavigator({ onLogout }: { onLogout: () => void }) {
 }
 
 export default function AppNavigator() {
-  const { userType, isLoading, signOut } = useAuth();
-  const [showBackendSetup, setShowBackendSetup] = useState(false);
-  const [showLanguageSelect, setShowLanguageSelect] = useState(false);
-  const [showLogin, setShowLogin] = useState(false);
-  const [isCheckingFirstLaunch, setIsCheckingFirstLaunch] = useState(true);
+  const { userType, isLoading } = useAuth();
+  // Pre-auth order on every launch: language picker → backend address → CNIC
+  // login. Both screens are answered every time; the picks are still persisted,
+  // the user just confirms them on each launch.
+  const [preAuthStep, setPreAuthStep] = useState<PreAuthStep>("language");
 
+  // A restored session opens the app directly. When a session ends (logout or
+  // expiry) the user drops back to the first pre-auth step, the language picker.
   useEffect(() => {
-    (async () => {
-      try {
-        const first = await isFirstLaunch();
-        if (first && !userType) {
-          setShowBackendSetup(true);
-        } else if (!userType) {
-          setShowLogin(true);
-        }
-      } catch {
-        setShowLogin(true);
-      } finally {
-        setIsCheckingFirstLaunch(false);
-      }
-    })();
+    if (!userType) {
+      setPreAuthStep("language");
+    }
   }, [userType]);
 
-  if (isLoading || isCheckingFirstLaunch) {
+  if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
@@ -91,7 +87,7 @@ export default function AppNavigator() {
   }
 
   // User is authenticated - show the appropriate navigator
-  if (userType && !showBackendSetup && !showLanguageSelect && !showLogin) {
+  if (userType) {
     return (
       <NavigationContainer
         theme={{
@@ -113,60 +109,29 @@ export default function AppNavigator() {
         }}
       >
         {userType === "user" ? (
-          <UserNavigator
-            onLogout={() => {
-              setShowLogin(true);
-            }}
-          />
+          <UserNavigator onLogout={() => setPreAuthStep("language")} />
         ) : (
-          <AdminNavigator
-            onLogout={() => {
-              setShowLogin(true);
-            }}
-          />
+          <AdminNavigator onLogout={() => setPreAuthStep("language")} />
         )}
       </NavigationContainer>
     );
   }
 
-  // Pre-auth flow
-  if (showBackendSetup) {
+  // Pre-auth flow — the language picker comes first, then the server address,
+  // then the CNIC login screen. Both earlier steps run on every launch.
+  if (preAuthStep === "language") {
     return (
-      <BackendUrlSetupScreen
-        onComplete={() => {
-          setShowBackendSetup(false);
-          setShowLanguageSelect(true);
-        }}
-      />
+      <LanguageSelectScreen onComplete={() => setPreAuthStep("backend")} />
     );
   }
 
-  if (showLanguageSelect) {
+  if (preAuthStep === "backend") {
     return (
-      <LanguageSelectScreen
-        onComplete={() => {
-          setShowLanguageSelect(false);
-          setShowLogin(true);
-        }}
-      />
+      <BackendUrlSetupScreen onComplete={() => setPreAuthStep("login")} />
     );
   }
 
-  if (showLogin) {
-    return (
-      <LoginScreen
-        onLoginSuccess={() => {
-          setShowLogin(false);
-        }}
-      />
-    );
-  }
-
-  return (
-    <View style={styles.loadingContainer}>
-      <ActivityIndicator size="large" color={colors.primary} />
-    </View>
-  );
+  return <LoginScreen onLoginSuccess={() => setPreAuthStep("language")} />;
 }
 
 const styles = StyleSheet.create({

@@ -2,7 +2,30 @@ import axios, { AxiosInstance, InternalAxiosRequestConfig } from "axios";
 import * as SecureStore from "expo-secure-store";
 import { DEFAULT_API_URL } from "../store/settings";
 
-const TOKEN_KEY = "sentinel_access_token";
+export const TOKEN_KEY = "sentinel_access_token";
+export const USER_TYPE_KEY = "sentinel_user_type";
+export const CNIC_KEY = "sentinel_cnic";
+
+// --- Session expiry (401 on a protected request) ---
+type SessionExpiryListener = () => void;
+const sessionExpiryListeners = new Set<SessionExpiryListener>();
+
+/** Subscribe to session expiry. Returns an unsubscribe function. */
+export function addSessionExpiryListener(fn: SessionExpiryListener): () => void {
+  sessionExpiryListeners.add(fn);
+  return () => {
+    sessionExpiryListeners.delete(fn);
+  };
+}
+
+/** HTTP status code from a failed request, or undefined if there was no response (network error, timeout, non-Axios error). */
+export function getErrorStatus(err: unknown): number | undefined {
+  return axios.isAxiosError(err) ? err.response?.status : undefined;
+}
+
+function notifySessionExpired() {
+  sessionExpiryListeners.forEach((fn) => fn());
+}
 
 let clientInstance: AxiosInstance | null = null;
 
@@ -27,6 +50,22 @@ function createClient(baseURL: string): AxiosInstance {
       return config;
     },
     (error) => Promise.reject(error)
+  );
+
+  // A 401 on a request that carried a token means the session is dead.
+  // Requests without a token (e.g. a failed login) are ignored.
+  instance.interceptors.response.use(
+    (res) => res,
+    (error) => {
+      if (
+        axios.isAxiosError(error) &&
+        error.response?.status === 401 &&
+        error.config?.headers?.Authorization
+      ) {
+        notifySessionExpired();
+      }
+      return Promise.reject(error);
+    }
   );
 
   return instance;
@@ -81,5 +120,3 @@ export async function checkBackendHealth(
     return { ok: false, error: message };
   }
 }
-
-export { TOKEN_KEY };

@@ -26,8 +26,8 @@ import { sampleResponse } from "./demo-sample";
 
 const DEMO_CNIC = import.meta.env.VITE_DEMO_CNIC || "";
 const DEMO_LANGUAGE = "en";
-const DEMO_LATITUDE = "25.39689";
-const DEMO_LONGITUDE = "68.37718";
+const DEMO_LATITUDE = "24.885937";
+const DEMO_LONGITUDE = "67.1188125";
 const DEMO_CAMERA_ID = "web-demo";
 const DEMO_SINGLE_UPLOAD = "1";
 
