@@ -223,3 +223,6 @@ generated_audio/**
 incidents.json
 
 .qoder
+
+opencode.json
+*.tsbuildinfo

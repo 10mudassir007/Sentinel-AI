@@ -22,13 +22,15 @@ import {
 import { motion } from "framer-motion";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { ShineBorder } from "@/components/ui/shine-border";
+import { containerVariants, itemVariants } from "@/lib/utils";
 
 const techCategories = [
   {
     title: "Backend & API",
     description: "Core server framework and API layer powering the detection pipeline.",
     items: [
-      { name: "Python 3.11", desc: "Primary runtime language for all backend services.", icon: FlaskConical, color: "text-blue-400" },
+      { name: "Python 3.12", desc: "Primary runtime language for all backend services.", icon: FlaskConical, color: "text-blue-400" },
       { name: "FastAPI", desc: "Async Python web framework handling all HTTP endpoints, file uploads, and WebSocket connections.", icon: Server, color: "text-emerald-400" },
       { name: "Uvicorn", desc: "High-performance ASGI server running the FastAPI application on port 8754.", icon: Zap, color: "text-amber-400" },
       { name: "Pydantic", desc: "Data validation and settings management for API request/response models.", icon: CheckCircle2, color: "text-cyan-400" },
@@ -74,7 +76,7 @@ const techCategories = [
     items: [
       { name: "Argon2id", desc: "Memory-hard password hashing for CNIC-based authentication with 24-hour bearer token expiry.", icon: Lock, color: "text-emerald-400" },
       { name: "Geopy / Nominatim", desc: "Reverse geocoding service converting GPS coordinates to human-readable location for dispatch alerts.", icon: MapPin, color: "text-sky-400" },
-      { name: "Docker", desc: "Containerized deployment on Python 3.11-slim with multi-stage builds.", icon: Globe, color: "text-blue-400" },
+      { name: "Docker", desc: "Containerized deployment on Python 3.12-slim with multi-stage builds.", icon: Globe, color: "text-blue-400" },
       { name: "Rate Limiting", desc: "Per-IP and per-source request throttling with max upload size enforcement and magic-byte validation.", icon: Activity, color: "text-yellow-400" },
     ],
     borderColor: "border-emerald-400/20",
@@ -90,16 +92,6 @@ const pipelineFlow = [
   { name: "Dispatch", icon: Phone, color: "text-red-400" },
 ];
 
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.08 } },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
-};
-
 const TechnologyStack = () => {
   return (
     <>
@@ -111,10 +103,15 @@ const TechnologyStack = () => {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-6"
+            className="relative inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-6"
           >
-            <Zap className="w-3 h-3" />
-            <span>Production Backend Stack</span>
+            <ShineBorder
+              shineColor={["hsl(199 89% 48%)", "hsl(199 89% 72%)"]}
+              duration={7}
+              className="rounded-full"
+            />
+            <Zap className="relative z-10 w-3 h-3" />
+            <span className="relative z-10">Production Backend Stack</span>
           </motion.div>
 
           <motion.h1
@@ -222,7 +219,7 @@ const TechnologyStack = () => {
                   <h3 className="text-lg font-bold mb-2">Full Pipeline Flow</h3>
                   <p className="text-sm text-muted-foreground leading-relaxed">
                     Video upload triggers a motion-gated pipeline: frames with sufficient motion pass to <strong className="text-foreground">YOLO11m</strong> for object detection. 
-                    If an interest class (person, vehicle, weapon) is detected above the 0.25 confidence threshold, the frame enters a <strong className="text-foreground">per-camera escalation state machine</strong> 
+                    If an interest class (person, vehicle, weapon) is detected, the frame enters a <strong className="text-foreground">per-camera escalation state machine</strong> 
                     (IDLE &rarr; SUSPICIOUS &rarr; CONFIRMING &rarr; ALERT &rarr; COOLDOWN). Confirmed incidents are sent to the <strong className="text-foreground">Gemini 3.5 Flash</strong> vision LLM 
                     (with Groq fallback) for bilingual Urdu/English description, then to the <strong className="text-foreground">LangGraph agent</strong> which decides on 
                     <strong className="text-foreground"> Asterisk SIP dispatch</strong> calls to police, ambulance, or fire services with TTS-generated voice alerts.

@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { ShineBorder } from "@/components/ui/shine-border";
+import { containerVariants, itemVariants } from "@/lib/utils";
 
 const useCases = [
   {
@@ -86,23 +88,6 @@ const useCases = [
   },
 ];
 
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.1 },
-  },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 30 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.5 },
-  },
-};
-
 const UseCases = () => {
   return (
     <div className="min-h-screen bg-background">
@@ -114,10 +99,15 @@ const UseCases = () => {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-6"
+            className="relative inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-6"
           >
-            <Zap className="w-3 h-3" />
-            <span>Applications Across Industries</span>
+            <ShineBorder
+              shineColor={["hsl(199 89% 48%)", "hsl(199 89% 72%)"]}
+              duration={7}
+              className="rounded-full"
+            />
+            <Zap className="relative z-10 w-3 h-3" />
+            <span className="relative z-10">Applications Across Industries</span>
           </motion.div>
 
           <motion.h1

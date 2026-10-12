@@ -24,6 +24,8 @@ import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { ShineBorder } from "@/components/ui/shine-border";
+import { containerVariants, itemVariants } from "@/lib/utils";
 
 const HowItWorks = () => {
   const steps = [
@@ -84,10 +86,10 @@ const HowItWorks = () => {
       title: "Motion Gate & YOLO11m Detection",
       subtitle: "Backend Frame Analysis",
       description:
-        "The backend processes each chunk: a motion gate (frame differencing with Gaussian blur and adaptive thresholding) filters out static frames, then the YOLO11m model detects interest classes (person, vehicle, weapon) at a confidence threshold of 0.25. A per-camera escalation state machine (IDLE to SUSPICIOUS to CONFIRMING to ALERT to COOLDOWN) tracks whether a potential incident is developing.",
+        "The backend processes each chunk: a motion gate (frame differencing with Gaussian blur and adaptive thresholding) filters out static frames, then the YOLO11m model detects interest classes (person, vehicle, weapon). A per-camera escalation state machine (IDLE to SUSPICIOUS to CONFIRMING to ALERT to COOLDOWN) tracks whether a potential incident is developing.",
       details: [
         "Motion gate filters static frames (OpenCV frame differencing)",
-        "YOLO11m detects interest classes at confidence >= 0.25",
+        "YOLO11m detects interest classes",
         "Escalation state machine per camera source",
         "Confirmed detections flagged for AI reasoning",
       ],
@@ -234,23 +236,6 @@ const HowItWorks = () => {
     },
   ];
 
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: { staggerChildren: 0.1 },
-    },
-  };
-
-  const itemVariants = {
-    hidden: { opacity: 0, y: 20 },
-    visible: {
-      opacity: 1,
-      y: 0,
-      transition: { duration: 0.5 },
-    },
-  };
-
   const stepVariants = {
     hidden: { opacity: 0, x: -50 },
     visible: {
@@ -270,10 +255,15 @@ const HowItWorks = () => {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-6"
+            className="relative inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-6"
           >
-            <Zap className="w-3 h-3" />
-            <span>End-to-End Incident Detection &amp; Response</span>
+            <ShineBorder
+              shineColor={["hsl(199 89% 48%)", "hsl(199 89% 72%)"]}
+              duration={7}
+              className="rounded-full"
+            />
+            <Zap className="relative z-10 w-3 h-3" />
+            <span className="relative z-10">End-to-End Incident Detection &amp; Response</span>
           </motion.div>
 
           <motion.h1

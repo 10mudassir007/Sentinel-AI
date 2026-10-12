@@ -14,6 +14,8 @@ import {
 import { motion } from "framer-motion";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { ShineBorder } from "@/components/ui/shine-border";
+import { containerVariants, itemVariants } from "@/lib/utils";
 
 const incidentTypes = [
   {
@@ -98,23 +100,6 @@ const incidentTypes = [
   },
 ];
 
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.08 },
-  },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 30 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.5 },
-  },
-};
-
 const DetectionCapabilities = () => {
   return (
     <div className="min-h-screen bg-background">
@@ -126,10 +111,15 @@ const DetectionCapabilities = () => {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-6"
+            className="relative inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-6"
           >
-            <Zap className="w-3 h-3" />
-            <span>Incident Classification Model</span>
+            <ShineBorder
+              shineColor={["hsl(199 89% 48%)", "hsl(199 89% 72%)"]}
+              duration={7}
+              className="rounded-full"
+            />
+            <Zap className="relative z-10 w-3 h-3" />
+            <span className="relative z-10">Incident Classification Model</span>
           </motion.div>
 
           <motion.h1
