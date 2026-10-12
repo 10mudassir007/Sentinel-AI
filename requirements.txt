@@ -70,7 +70,7 @@ typing_extensions==4.16.0
 ultralytics-thop==2.0.20
 ultralytics-opencv-headless==8.4.98
 opencv-python-headless==4.13.0.92
-urllib3==2.7.0
+urllib3==2.8.0
 websockets==16.1.1
 uuid_utils==0.17.0
 uvicorn==0.52.4
