@@ -17,6 +17,13 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { motion } from "framer-motion";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -147,11 +154,12 @@ const pipelineStages = [
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8754";
 const DEMO_CNIC = import.meta.env.VITE_DEMO_CNIC || "";
-const DEMO_LANGUAGE = "en";
-const DEMO_LATITUDE = "25.39689";
-const DEMO_LONGITUDE = "68.37718";
+const DEMO_LATITUDE = "33.6969041";
+const DEMO_LONGITUDE = "73.0854981";
 const DEMO_CAMERA_ID = "web-demo";
 const DEMO_SINGLE_UPLOAD = "1";
+type DemoLanguage = "en" | "ur";
+const isDemoLanguage = (value: string): value is DemoLanguage => value === "en" || value === "ur";
 
 // Matches the backend limit (MAX_UPLOAD_MB) — enforced here to avoid streaming
 // oversized or non-video files to the server.
@@ -164,6 +172,7 @@ const DemoPage = () => {
   const [apiResponse, setApiResponse] = useState<AnalyzeVideoResponse | null>(null);
   const [isFallback, setIsFallback] = useState(false);
   const [activeStage, setActiveStage] = useState<string | null>(null);
+  const [language, setLanguage] = useState<DemoLanguage>("en");
 
   const [apiError, setApiError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string>("");
@@ -206,10 +215,10 @@ const DemoPage = () => {
     return authPromiseRef.current;
   };
 
-  const analyzeVideo = async (file: File, token: string) => {
+  const analyzeVideo = async (file: File, token: string, selectedLanguage: DemoLanguage) => {
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("language", DEMO_LANGUAGE);
+    formData.append("language", selectedLanguage);
     formData.append("latitude", DEMO_LATITUDE);
     formData.append("longitude", DEMO_LONGITUDE);
     formData.append("camera_id", DEMO_CAMERA_ID);
@@ -287,13 +296,13 @@ const DemoPage = () => {
       let token = await ensureAuthToken();
       let data: AnalyzeVideoResponse;
       try {
-        data = await analyzeVideo(file, token);
+        data = await analyzeVideo(file, token, language);
       } catch (error) {
         if (isApiError(error) && error.status === 401) {
           // Bearer token expired — re-login and retry once
           authTokenRef.current = null;
           token = await ensureAuthToken();
-          data = await analyzeVideo(file, token);
+          data = await analyzeVideo(file, token, language);
         } else {
           throw error;
         }
@@ -474,6 +483,30 @@ const DemoPage = () => {
                   <FileVideo className="w-5 h-5 text-primary" />
                   Incident Footage
                 </h3>
+
+                <div className="mb-4 space-y-2">
+                  <label htmlFor="demo-language" className="text-sm font-medium text-foreground">
+                    Response language
+                  </label>
+                  <Select
+                    value={language}
+                    onValueChange={(value) => {
+                      if (isDemoLanguage(value)) setLanguage(value);
+                    }}
+                    disabled={uploadState !== "idle"}
+                  >
+                    <SelectTrigger id="demo-language" aria-label="Response language">
+                      <SelectValue placeholder="Select a language" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="en">English</SelectItem>
+                      <SelectItem value="ur">Urdu</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Choose the language used for the incident description and voice alert.
+                  </p>
+                </div>
 
                 {uploadState === "idle" ? (
                   <label className="border-2 border-dashed border-border rounded-lg p-12 text-center hover:border-primary/50 transition-colors cursor-pointer block">

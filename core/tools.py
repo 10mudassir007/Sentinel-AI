@@ -97,6 +97,7 @@ _dispatch_languages_var: contextvars.ContextVar[list[str] | None] = contextvars.
 # services/video_service.py before the agent runs so tools can embed it in
 # the voice message without relying on the LLM to pass it through.
 
+
 def set_dispatch_context(location: dict | None, languages: list[str] | None = None) -> None:
     """Stash the request location and requested languages for tools in this request.
 
@@ -117,9 +118,7 @@ def _dispatch_context() -> dict | None:
     return _dispatch_context_var.get()
 
 
-def _alert_script(
-    service: str, incident: str, urdu_incident: str, location_label: str = ""
-) -> str:
+def _alert_script(service: str, incident: str, urdu_incident: str, location_label: str = "") -> str:
     """Build a short spoken alert, preferring Urdu for local contacts."""
     if urdu_incident:
         if location_label:
@@ -160,7 +159,10 @@ def _synth_elevenlabs(script: str, out_path: Path) -> None:
         model_id=ELEVENLABS_MODEL_ID,
         output_format="pcm_16000",
     )
-    _write_pcm_wav(out_path, b"".join(audio))
+    pcm = b"".join(audio)
+    if not pcm:
+        raise RuntimeError("ElevenLabs returned an empty audio stream")
+    _write_pcm_wav(out_path, pcm)
 
 
 def _synth_edge_tts(script: str, lang: str, out_path: Path) -> None:
@@ -169,20 +171,27 @@ def _synth_edge_tts(script: str, lang: str, out_path: Path) -> None:
 
     async def _stream() -> bytes:
         communicate = edge_tts.Communicate(script, voice=_EDGE_TTS_VOICES[lang])
-        chunks = [
-            chunk["data"]
-            async for chunk in communicate.stream()
-            if chunk["type"] == "audio"
-        ]
+        chunks = [chunk["data"] async for chunk in communicate.stream() if chunk["type"] == "audio"]
         return b"".join(chunks)
 
     mp3 = asyncio.run(_stream())
     try:
         result = subprocess.run(
             [
-                "ffmpeg", "-hide_banner", "-loglevel", "error",
-                "-i", "pipe:0", "-f", "wav", "-ac", "1", "-ar", "16000",
-                "-y", str(out_path),
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                "pipe:0",
+                "-f",
+                "wav",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-y",
+                str(out_path),
             ],
             input=mp3,
             capture_output=True,
@@ -201,8 +210,11 @@ def _synth_edge_tts(script: str, lang: str, out_path: Path) -> None:
 def _synthesize_voice_message(script: str, lang: str) -> dict:
     """Generate the alert audio into the API and Asterisk directories.
 
-    Tries ElevenLabs first when a key is configured; falls back to edge-tts
-    on any failure (missing key, quota exhausted, invalid voice/model, etc.).
+    ElevenLabs is used first when a key is configured; on *any* failure
+    (quota exhausted, invalid key/voice/model, network error, empty audio)
+    it automatically falls back to edge-tts, using the voice for the
+    requested language. The engine that produced the file is reported in
+    the returned dict ("engine": "elevenlabs" | "edge-tts").
     """
     name = f"alert-{uuid.uuid4().hex[:8]}-{int(time.time())}.wav"
 
@@ -213,26 +225,39 @@ def _synthesize_voice_message(script: str, lang: str) -> dict:
     if ELEVENLABS_API_KEY:
         try:
             _synth_elevenlabs(script, api_path)
+            engine = "elevenlabs"
         except Exception as exc:
             logger.warning(
-                "ElevenLabs TTS failed (%s: %s), falling back to edge-tts",
-                exc.__class__.__name__, exc,
+                "ElevenLabs TTS failed (%s: %s), falling back to edge-tts (lang=%s)",
+                exc.__class__.__name__,
+                exc,
+                lang,
             )
-            _synth_edge_tts(script, lang, api_path)
+            try:
+                _synth_edge_tts(script, lang, api_path)
+                engine = "edge-tts"
+            except Exception as edge_exc:
+                raise RuntimeError(
+                    f"ElevenLabs failed ({exc.__class__.__name__}: {exc}); "
+                    f"edge-tts fallback also failed ({edge_exc})"
+                ) from edge_exc
     else:
         _synth_edge_tts(script, lang, api_path)
+        engine = "edge-tts"
+
+    logger.info("Alert audio %s synthesized with %s (lang=%s)", name, engine, lang)
 
     sounds_dir = Path(ASTERISK_SOUNDS_DIR)
     if sounds_dir != api_dir:
-        sounds_dir.mkdir(parents=True, exist_ok=True)
         try:
+            sounds_dir.mkdir(parents=True, exist_ok=True)
             (sounds_dir / name).write_bytes(api_path.read_bytes())
         except OSError:
             logger.warning("Could not copy alert audio into %s", sounds_dir)
 
     _prune_old_audio(api_dir, keep_name=name)
 
-    return {"name": name, "url": f"/audio/{name}"}
+    return {"name": name, "url": f"/audio/{name}", "engine": engine}
 
 
 def _prune_old_audio(api_dir: Path, keep_name: str) -> None:
@@ -242,9 +267,7 @@ def _prune_old_audio(api_dir: Path, keep_name: str) -> None:
     file just written (it may already be referenced by an in-flight result).
     """
     try:
-        files = sorted(
-            api_dir.glob("alert-*.wav"), key=lambda p: p.stat().st_mtime
-        )
+        files = sorted(api_dir.glob("alert-*.wav"), key=lambda p: p.stat().st_mtime)
     except OSError:
         return
     if len(files) <= _AUDIO_KEEP_MAX:
@@ -303,9 +326,7 @@ def _place_call_via_sip(destination: str, audio_name: str) -> dict:
             secret=AMI_SECRET,
         )
         try:
-            await asyncio.wait_for(
-                manager.connect(), timeout=_AMI_CONNECT_TIMEOUT_S
-            )
+            await asyncio.wait_for(manager.connect(), timeout=_AMI_CONNECT_TIMEOUT_S)
             response = await _originate_call(manager, destination, audio_name)
             status = _ami_status(response)
             return {
@@ -390,7 +411,10 @@ def _dispatch(service: str, incident: str, urdu_incident: str = "") -> str:
     script = _alert_script(service, incident, urdu, location_label)
     logger.info(
         "Dispatch audio: lang=%s requested=%s urdu_provided=%s script=%r",
-        lang, list(languages), bool(urdu_incident), script[:120],
+        lang,
+        list(languages),
+        bool(urdu_incident),
+        script[:120],
     )
     try:
         result["audio"] = _synthesize_voice_message(script, lang)

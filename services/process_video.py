@@ -77,8 +77,12 @@ def analyze_frame(
     frame: np.ndarray,
     previous_description: str = "",
     languages: list[str] | None = None,
-) -> str:
-    """Analyze a single frame using the LLM, passing previous description as context."""
+) -> tuple[str, dict | None]:
+    """Analyze a single frame using the LLM, passing previous description as context.
+
+    Returns the description and the model's usage metadata (None when the
+    provider does not report it).
+    """
     messages = []
     prompt_text = f"""
     You are analyzing a video frame, The video is of an incident being happening, you are also given description of previous frame.
@@ -104,7 +108,7 @@ def analyze_frame(
 
     message_obj = HumanMessage(content=messages)
     response = _get_vis_llm().invoke([message_obj])
-    return response.content
+    return response.content, getattr(response, "usage_metadata", None)
 
 
 # ------------------------------------------------------------------
@@ -146,6 +150,13 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
     detection_discards = 0
     throttled_frames = 0
 
+    # Metrics reported back to the API client alongside the analysis.
+    frames_read = 0
+    gated_frames = 0
+    vision_calls = 0
+    vision_input_tokens = 0
+    vision_output_tokens = 0
+
     # Gate 3 - per-camera escalation state machine. The key defaults to the
     # video path so one-off uploads never share a lifecycle; clients that
     # send a camera_id get true cross-upload throttling for that camera.
@@ -169,6 +180,7 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
             ret, frame = cap.read()
             if not ret:
                 break
+            frames_read += 1
 
             timestamp = frame_index / fps
             if timestamp < start_time:
@@ -229,6 +241,7 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
             # Only the SUSPICIOUS -> CONFIRMING transition runs the vision
             # LLM; repeated gated detections while CONFIRMING are what
             # authorize the dispatch, and COOLDOWN blocks flood re-alerts.
+            gated_frames += 1
             action = tracker.on_gated_detection()
             if action == ALERT_ACTION:
                 # Confirming hits reached: the agent/dispatch runs after the
@@ -254,12 +267,16 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
             # action == ANALYZE: the vision LLM runs once per incident
             # lifecycle; this description is the incident evidence.
             try:
-                description = analyze_frame(frame, last_description, languages=languages)
+                description, usage = analyze_frame(frame, last_description, languages=languages)
             except Exception as exc:
                 logger.warning("Vision analysis failed at %.2fs: %s", timestamp, exc)
                 frame_index += 1
                 continue
             last_description = description
+            vision_calls += 1
+            if usage:
+                vision_input_tokens += int(usage.get("input_tokens") or 0)
+                vision_output_tokens += int(usage.get("output_tokens") or 0)
 
             incidents.append({
                 "timestamp": round(timestamp, 2),
@@ -307,6 +324,18 @@ def process_video_for_incidents(video_path: str, target_fps: float = 1,
         "incidents": incidents,
         "alert": alert_triggered,
         "escalation": tracker.snapshot(),
+        "metrics": {
+            "processed_frames": frames_read,
+            "processed_seconds": round(frames_read / fps, 2) if fps else 0.0,
+            "gated_frames": gated_frames,
+            "frames_analyzed": len(incidents),
+            "motion_discards": motion_discards,
+            "detection_discards": detection_discards,
+            "throttled_frames": throttled_frames,
+            "vision_calls": vision_calls,
+            "vision_input_tokens": vision_input_tokens,
+            "vision_output_tokens": vision_output_tokens,
+        },
     }
 
 

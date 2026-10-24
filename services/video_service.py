@@ -33,6 +33,21 @@ def _extract_agent_answer(messages: list) -> str:
     return ""
 
 
+def _sum_agent_usage(messages: list) -> tuple[int, int, int]:
+    """Sum token usage across the agent run's AI messages (calls included)."""
+    input_tokens = output_tokens = calls = 0
+    for message in messages:
+        if not isinstance(message, AIMessage):
+            continue
+        usage = getattr(message, "usage_metadata", None)
+        if not usage:
+            continue
+        calls += 1
+        input_tokens += int(usage.get("input_tokens") or 0)
+        output_tokens += int(usage.get("output_tokens") or 0)
+    return input_tokens, output_tokens, calls
+
+
 def analyze_video(
     video_path: str,
     max_frames_analyzed: int | None = MAX_FRAMES_TO_ANALYZE,
@@ -92,6 +107,13 @@ def _analyze(video_path, agent, max_frames_analyzed, languages, location, camera
         # Tools run in LangGraph worker threads; the results are stored via
         # contextvars.ContextVar which is propagated across threads.
         dispatch = pop_dispatch_info()
+
+        # Fold the agent run's token usage into the per-request metrics.
+        agent_input, agent_output, agent_calls = _sum_agent_usage(response["messages"])
+        metrics = video_analysis.setdefault("metrics", {})
+        metrics["agent_calls"] = agent_calls
+        metrics["agent_input_tokens"] = agent_input
+        metrics["agent_output_tokens"] = agent_output
     finally:
         # ALERT -> COOLDOWN: one dispatch attempt per incident lifecycle,
         # whether or not the tools succeeded.
